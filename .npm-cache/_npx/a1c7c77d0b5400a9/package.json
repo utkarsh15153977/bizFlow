@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "create-next-app": "^15.5.23"
+  },
+  "_npx": {
+    "packages": [
+      "create-next-app@15"
+    ]
+  }
+}

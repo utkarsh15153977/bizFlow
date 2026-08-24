@@ -148,4 +148,6 @@ export const navIcons = {
   "/settings": SettingsIcon,
   "/profile": ProfileIcon,
   "/notifications": BellIcon,
+  "/team": CustomersIcon,
+  "/organization": SettingsIcon,
 } as const;

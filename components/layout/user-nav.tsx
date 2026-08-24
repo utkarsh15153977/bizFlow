@@ -108,6 +108,30 @@ export function UserNav({ user }: UserNavProps) {
             >
               Profile
             </Link>
+            <Link
+              href="/team"
+              onClick={() => setIsOpen(false)}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+              role="menuitem"
+            >
+              Team
+            </Link>
+            <Link
+              href="/organization"
+              onClick={() => setIsOpen(false)}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+              role="menuitem"
+            >
+              Organization
+            </Link>
+            <Link
+              href="/notifications"
+              onClick={() => setIsOpen(false)}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+              role="menuitem"
+            >
+              Notifications
+            </Link>
           </div>
 
           <div className="border-t border-border pt-1">

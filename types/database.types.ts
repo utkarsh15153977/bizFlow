@@ -7,6 +7,7 @@ export type Json =
   | Json[];
 
 export type UserRole = "owner" | "admin" | "member";
+export type InvitationStatus = "pending" | "accepted" | "cancelled" | "expired";
 export type CustomerStatus = "active" | "inactive" | "lead";
 export type LeadStage = "new" | "contacted" | "qualified" | "proposal" | "won" | "lost";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -134,6 +135,48 @@ export interface Database {
             referencedColumns: ["id"];
           },
         ];
+      };
+      organization_invitations: {
+        Row: {
+          id: string;
+          organization_id: string;
+          email: string;
+          role: UserRole;
+          token_hash: string;
+          invited_by: string;
+          status: InvitationStatus;
+          expires_at: string;
+          accepted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          email: string;
+          role?: UserRole;
+          token_hash: string;
+          invited_by: string;
+          status?: InvitationStatus;
+          expires_at: string;
+          accepted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          email?: string;
+          role?: UserRole;
+          token_hash?: string;
+          invited_by?: string;
+          status?: InvitationStatus;
+          expires_at?: string;
+          accepted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       customers: {
         Row: {
@@ -563,6 +606,10 @@ export interface Database {
           notification_dedupe_key?: string | null;
         };
         Returns: string | null;
+      };
+      accept_organization_invitation: {
+        Args: { invitation_token_hash: string };
+        Returns: string;
       };
     };
     Enums: {

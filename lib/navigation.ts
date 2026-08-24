@@ -6,6 +6,8 @@ export const navItems = [
   { href: "/settings", label: "Settings" },
   { href: "/profile", label: "Profile" },
   { href: "/notifications", label: "Notifications" },
+  { href: "/team", label: "Team" },
+  { href: "/organization", label: "Organization" },
 ] as const;
 
 export const pageTitles: Record<string, { title: string; description: string }> =
@@ -38,6 +40,8 @@ export const pageTitles: Record<string, { title: string; description: string }> 
       title: "Notifications",
       description: "Stay up to date with workspace activity.",
     },
+    "/team": { title: "Team", description: "Manage your workspace members." },
+    "/organization": { title: "Organization", description: "Workspace details and membership." },
   };
 
 export function isNavActive(href: string, pathname: string) {

@@ -6,6 +6,9 @@ export type Permission =
   | "org:update"
   | "org:delete"
   | "members:manage"
+  | "members:invite"
+  | "members:role"
+  | "members:remove"
   | "members:view"
   | "customers:create"
   | "customers:read"
@@ -27,6 +30,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "org:update",
     "org:delete",
     "members:manage",
+    "members:invite",
+    "members:role",
+    "members:remove",
     "members:view",
     "customers:create",
     "customers:read",
@@ -46,6 +52,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: [
     "org:update",
     "members:manage",
+    "members:invite",
+    "members:role",
+    "members:remove",
     "members:view",
     "customers:create",
     "customers:read",
@@ -98,6 +107,18 @@ export function canManageOrganization(role?: Role | UserRole | null): boolean {
 }
 
 export function canManageMembers(role?: Role | UserRole | null): boolean {
+  return isOrgAdminOrOwner(role);
+}
+
+export function canInviteMembers(role?: Role | UserRole | null): boolean {
+  return isOrgAdminOrOwner(role);
+}
+
+export function canChangeMemberRole(role?: Role | UserRole | null): boolean {
+  return isOrgAdminOrOwner(role);
+}
+
+export function canRemoveMember(role?: Role | UserRole | null): boolean {
   return isOrgAdminOrOwner(role);
 }
 

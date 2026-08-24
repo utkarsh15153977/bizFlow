@@ -4,6 +4,8 @@ export const navItems = [
   { href: "/leads", label: "Leads" },
   { href: "/tasks", label: "Tasks" },
   { href: "/settings", label: "Settings" },
+  { href: "/profile", label: "Profile" },
+  { href: "/notifications", label: "Notifications" },
 ] as const;
 
 export const pageTitles: Record<string, { title: string; description: string }> =
@@ -27,6 +29,14 @@ export const pageTitles: Record<string, { title: string; description: string }> 
     "/settings": {
       title: "Settings",
       description: "Workspace preferences for your BizFlow account.",
+    },
+    "/profile": {
+      title: "Profile",
+      description: "Your personal account and workspace membership.",
+    },
+    "/notifications": {
+      title: "Notifications",
+      description: "Stay up to date with workspace activity.",
     },
   };
 

@@ -33,6 +33,11 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ### 2. Database Setup & Migrations
 Execute the SQL migration in your Supabase project's SQL Editor:
 - [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
+- [database/migrations/003_tasks_enhancements.sql](database/migrations/003_tasks_enhancements.sql)
+- [database/migrations/004_notifications_enhancements.sql](database/migrations/004_notifications_enhancements.sql)
+
+Notification due-date helpers are intentionally mutation/scheduler-ready only; no page load creates due-today or overdue notifications. A future cron or scheduled server job can call `createTaskDueNotification` for assigned tasks.
+- [database/migrations/002_profile_preferences.sql](database/migrations/002_profile_preferences.sql)
 
 This sets up:
 - Complete database tables: `profiles`, `organizations`, `organization_members`, `customers`, `leads`, `tasks`, `activities`, `notes`, `notifications`, `subscriptions`, `integration_configs`.

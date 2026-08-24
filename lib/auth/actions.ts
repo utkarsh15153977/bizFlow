@@ -34,7 +34,11 @@ function getSafeRedirectUrl(redirectTo?: string | null): string {
   }
 
   // Must start with '/' but not '//' or contain protocol schemes
-  if (redirectTo.startsWith("/") && !redirectTo.startsWith("//") && !redirectTo.includes("://")) {
+  if (
+    redirectTo.startsWith("/") &&
+    !redirectTo.startsWith("//") &&
+    !redirectTo.includes("://")
+  ) {
     return redirectTo;
   }
 
@@ -47,18 +51,22 @@ function resolveActionFormData(
 ): FormData | AuthActionResult {
   if (formDataOrUndefined instanceof FormData) return formDataOrUndefined;
   if (prevStateOrFormData instanceof FormData) return prevStateOrFormData;
+
   return { error: "Invalid form submission." };
 }
 
 function getConfiguredAppOrigin(): string | null {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
   if (!appUrl) return null;
 
   try {
     const url = new URL(appUrl);
+
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return null;
     }
+
     return url.origin;
   } catch {
     return null;
@@ -67,6 +75,7 @@ function getConfiguredAppOrigin(): string | null {
 
 async function getTrustedAppOrigin(): Promise<string | null> {
   const configuredOrigin = getConfiguredAppOrigin();
+
   if (configuredOrigin) return configuredOrigin;
 
   if (process.env.NODE_ENV !== "development") {
@@ -75,6 +84,7 @@ async function getTrustedAppOrigin(): Promise<string | null> {
 
   const headersList = await headers();
   const host = headersList.get("host");
+
   if (!host) return null;
 
   return `http://${host}`;
@@ -90,9 +100,11 @@ export async function getCurrentUser() {
 
   try {
     const supabase = await createClient();
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
+
     return user;
   } catch {
     return null;
@@ -104,10 +116,12 @@ export async function getCurrentUser() {
  */
 export async function getCurrentProfile(): Promise<Tables<"profiles"> | null> {
   const user = await getCurrentUser();
+
   if (!user) return null;
 
   try {
     const supabase = await createClient();
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("*")
@@ -123,12 +137,16 @@ export async function getCurrentProfile(): Promise<Tables<"profiles"> | null> {
 /**
  * Retrieves the active organization membership for the currently authenticated user.
  */
-export async function getCurrentMembership(): Promise<Tables<"organization_members"> | null> {
+export async function getCurrentMembership(): Promise<
+  Tables<"organization_members"> | null
+> {
   const user = await getCurrentUser();
+
   if (!user) return null;
 
   try {
     const supabase = await createClient();
+
     const { data: membership } = await supabase
       .from("organization_members")
       .select("*")
@@ -145,12 +163,16 @@ export async function getCurrentMembership(): Promise<Tables<"organization_membe
 /**
  * Retrieves the active organization for the currently authenticated user.
  */
-export async function getCurrentOrganization(): Promise<Tables<"organizations"> | null> {
+export async function getCurrentOrganization(): Promise<
+  Tables<"organizations"> | null
+> {
   const membership = await getCurrentMembership();
+
   if (!membership) return null;
 
   try {
     const supabase = await createClient();
+
     const { data: org } = await supabase
       .from("organizations")
       .select("*")
@@ -168,6 +190,7 @@ export async function getCurrentOrganization(): Promise<Tables<"organizations"> 
  */
 export async function getCurrentRole(): Promise<Role | null> {
   const membership = await getCurrentMembership();
+
   return (membership?.role as Role) || null;
 }
 
@@ -261,7 +284,11 @@ export async function signInWithPassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  const formData = resolveActionFormData(
+    _prevState,
+    formDataOrUndefined,
+  );
+
   if (!(formData instanceof FormData)) return formData;
 
   const email = formData.get("email")?.toString().trim();
@@ -269,7 +296,9 @@ export async function signInWithPassword(
   const rawRedirectTo = formData.get("redirectTo")?.toString();
 
   if (!email || !password) {
-    return { error: "Please enter both email and password." };
+    return {
+      error: "Please enter both email and password.",
+    };
   }
 
   if (!isSupabaseConfigured()) {
@@ -281,36 +310,53 @@ export async function signInWithPassword(
 
   try {
     const supabase = await createClient();
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      if (error.message === "fetch failed" || error.name === "AuthRetryableFetchError") {
+      if (
+        error.message === "fetch failed" ||
+        error.name === "AuthRetryableFetchError"
+      ) {
         return {
           error:
             "Unable to connect to Supabase. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
         };
       }
-      return { error: error.message || "Invalid login credentials." };
+
+      return {
+        error: error.message || "Invalid login credentials.",
+      };
     }
 
     const destination = getSafeRedirectUrl(rawRedirectTo);
+
     revalidatePath("/", "layout");
+
     redirect(destination);
   } catch (err) {
     if (err instanceof Error && err.message === "NEXT_REDIRECT") {
       throw err;
     }
-    const message = err instanceof Error ? err.message : "An unexpected error occurred during login.";
+
+    const message =
+      err instanceof Error
+        ? err.message
+        : "An unexpected error occurred during login.";
+
     if (message === "fetch failed") {
       return {
         error:
           "Unable to connect to Supabase Auth. Please check your NEXT_PUBLIC_SUPABASE_URL and API key in .env.local.",
       };
     }
-    return { error: message };
+
+    return {
+      error: message,
+    };
   }
 }
 
@@ -321,37 +367,55 @@ export async function signUpWithPassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  const formData = resolveActionFormData(
+    _prevState,
+    formDataOrUndefined,
+  );
+
   if (!(formData instanceof FormData)) return formData;
 
   const fullName = formData.get("fullName")?.toString().trim();
+
   const companyName = (
-    formData.get("companyName") || formData.get("organizationName")
+    formData.get("companyName") ||
+    formData.get("organizationName")
   )
     ?.toString()
     .trim();
+
   const email = formData.get("email")?.toString().trim();
   const password = formData.get("password")?.toString();
-  const confirmPassword = formData.get("confirmPassword")?.toString();
+  const confirmPassword =
+    formData.get("confirmPassword")?.toString();
 
   if (!fullName) {
-    return { error: "Full name is required." };
+    return {
+      error: "Full name is required.",
+    };
   }
 
   if (!companyName) {
-    return { error: "Workspace / company name is required." };
+    return {
+      error: "Workspace / company name is required.",
+    };
   }
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "Please enter a valid email address." };
+    return {
+      error: "Please enter a valid email address.",
+    };
   }
 
   if (!password || password.length < 8) {
-    return { error: "Password must contain at least 8 characters." };
+    return {
+      error: "Password must contain at least 8 characters.",
+    };
   }
 
   if (password !== confirmPassword) {
-    return { error: "Passwords do not match." };
+    return {
+      error: "Passwords do not match.",
+    };
   }
 
   if (!isSupabaseConfigured()) {
@@ -363,11 +427,15 @@ export async function signUpWithPassword(
 
   try {
     const origin = await getTrustedAppOrigin();
+
     if (!origin) {
-      return { error: "Application URL is not configured." };
+      return {
+        error: "Application URL is not configured.",
+      };
     }
 
     const supabase = await createClient();
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -382,27 +450,39 @@ export async function signUpWithPassword(
     });
 
     if (error) {
-      if (error.message === "fetch failed" || error.name === "AuthRetryableFetchError") {
+      if (
+        error.message === "fetch failed" ||
+        error.name === "AuthRetryableFetchError"
+      ) {
         return {
           error:
             "Unable to connect to Supabase. Please verify that NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local are set to your real project credentials.",
         };
       }
-      return { error: error.message || "Unable to create account." };
-    }
 
-    if (!data.user) {
-      return { error: "Unable to create account. Please try again." };
-    }
-
-    // Check if user already exists (Supabase returns empty identities when email exists and confirmation is active)
-    if (data.user.identities && data.user.identities.length === 0) {
       return {
-        error: "An account with this email address already exists. Please sign in instead.",
+        error: error.message || "Unable to create account.",
       };
     }
 
-    // If session is active (e.g. email confirmation is disabled)
+    if (!data.user) {
+      return {
+        error: "Unable to create account. Please try again.",
+      };
+    }
+
+    // Check if user already exists
+    if (
+      data.user.identities &&
+      data.user.identities.length === 0
+    ) {
+      return {
+        error:
+          "An account with this email address already exists. Please sign in instead.",
+      };
+    }
+
+    // If session is active
     if (data.session) {
       revalidatePath("/", "layout");
       redirect("/");
@@ -417,14 +497,22 @@ export async function signUpWithPassword(
     if (err instanceof Error && err.message === "NEXT_REDIRECT") {
       throw err;
     }
-    const message = err instanceof Error ? err.message : "An unexpected error occurred during signup.";
+
+    const message =
+      err instanceof Error
+        ? err.message
+        : "An unexpected error occurred during signup.";
+
     if (message === "fetch failed") {
       return {
         error:
           "Unable to reach the Supabase Auth server. Please check that NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local are set correctly.",
       };
     }
-    return { error: message };
+
+    return {
+      error: message,
+    };
   }
 }
 
@@ -440,6 +528,7 @@ export async function signOut(): Promise<void> {
       // Continue to redirect even if sign out call fails
     }
   }
+
   revalidatePath("/", "layout");
   redirect("/login");
 }
@@ -451,13 +540,19 @@ export async function requestPasswordReset(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  const formData = resolveActionFormData(
+    _prevState,
+    formDataOrUndefined,
+  );
+
   if (!(formData instanceof FormData)) return formData;
 
   const email = formData.get("email")?.toString().trim();
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "Please enter a valid email address." };
+    return {
+      error: "Please enter a valid email address.",
+    };
   }
 
   if (!isSupabaseConfigured()) {
@@ -469,23 +564,54 @@ export async function requestPasswordReset(
 
   try {
     const origin = await getTrustedAppOrigin();
+
     if (!origin) {
-      return { error: "Application URL is not configured." };
+      return {
+        error: "Application URL is not configured.",
+      };
     }
 
     const supabase = await createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/auth/callback?next=/reset-password`,
-    });
+
+    const redirectUrl =
+      `${origin}/auth/callback?next=/reset-password`;
+
+    const { error } =
+      await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl,
+      });
 
     if (error) {
-      if (error.message === "fetch failed" || error.name === "AuthRetryableFetchError") {
+      console.error(
+        "========== PASSWORD RESET ERROR ==========",
+      );
+
+      console.error("Supabase error:", error);
+      console.error("Message:", error.message);
+      console.error("Name:", error.name);
+      console.error("Status:", error.status);
+      console.error("Origin:", origin);
+      console.error("Redirect URL:", redirectUrl);
+
+      console.error(
+        "==========================================",
+      );
+
+      if (
+        error.message === "fetch failed" ||
+        error.name === "AuthRetryableFetchError"
+      ) {
         return {
           error:
             "Unable to reach the Supabase Auth server. Please verify your connection and environment variables.",
         };
       }
-      return { error: "Unable to send password reset email. Please try again." };
+
+      return {
+        error:
+          error.message ||
+          "Unable to send password reset email.",
+      };
     }
 
     return {
@@ -497,6 +623,15 @@ export async function requestPasswordReset(
     if (err instanceof Error && err.message === "NEXT_REDIRECT") {
       throw err;
     }
+
+    console.error(
+      "========== PASSWORD RESET EXCEPTION ==========",
+    );
+    console.error("Error:", err);
+    console.error(
+      "==============================================",
+    );
+
     return {
       error:
         "Unable to send password reset email. Please check your connection and configuration.",
@@ -508,6 +643,79 @@ export async function requestPasswordReset(
  * Updates the user's password using the active recovery session.
  */
 export async function updatePassword(
+  _prevState: AuthActionResult | null | FormData,
+  formDataOrUndefined?: FormData,
+): Promise<AuthActionResult> {
+  const formData = resolveActionFormData(
+    _prevState,
+    formDataOrUndefined,
+  );
+
+  if (!(formData instanceof FormData)) return formData;
+
+  const password = formData.get("password")?.toString();
+  const confirmPassword =
+    formData.get("confirmPassword")?.toString();
+
+  if (!password || password.length < 8) {
+    return {
+      error: "Password must contain at least 8 characters.",
+    };
+  }
+
+  if (password !== confirmPassword) {
+    return {
+      error: "Passwords do not match.",
+    };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      error:
+        "Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    const { error } = await supabase.auth.updateUser({
+      password,
+    });
+
+    if (error) {
+      return {
+        error:
+          error.message ||
+          "Failed to update password.",
+      };
+    }
+
+    revalidatePath("/", "layout");
+
+    redirect(
+      "/login?message=Your+password+has+been+updated+successfully",
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message === "NEXT_REDIRECT") {
+      throw err;
+    }
+
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Failed to update password.";
+
+    return {
+      error: message,
+    };
+  }
+}
+
+/**
+ * Changes the password for an already authenticated user.
+ */
+export async function changePassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
@@ -526,30 +734,25 @@ export async function updatePassword(
   }
 
   if (!isSupabaseConfigured()) {
-    return {
-      error:
-        "Supabase is not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
-    };
+    return { error: "Supabase is not configured." };
   }
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.updateUser({
-      password,
-    });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (error) {
-      return { error: error.message || "Failed to update password." };
+    if (!user) {
+      return { error: "You must be signed in to change your password." };
     }
 
-    revalidatePath("/", "layout");
-    redirect("/login?message=Your+password+has+been+updated+successfully");
-  } catch (err) {
-    if (err instanceof Error && err.message === "NEXT_REDIRECT") {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : "Failed to update password.";
-    return { error: message };
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return { error: error.message || "Failed to update password." };
+
+    return { success: true, message: "Password updated successfully." };
+  } catch {
+    return { error: "Unable to update your password. Please try again." };
   }
 }
 

@@ -1,11 +1,16 @@
 import { RecentActivity } from "@/components/dashboard/recent-activity";
+import Link from "next/link";
 import { RevenueOverview } from "@/components/dashboard/revenue-overview";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   getDashboardStats,
   getLeadPipeline,
+  getRecentCustomers,
   getRecentActivities,
+  getTaskDashboardMetrics,
+  getUpcomingTasks,
+  getOverdueTasks,
 } from "@/lib/crm-actions";
 
 function timeAgo(dateString: string): string {
@@ -30,16 +35,23 @@ function timeAgo(dateString: string): string {
 }
 
 export default async function DashboardPage() {
-  const [stats, pipeline, activities] = await Promise.all([
+  const [stats, pipeline, activities, recentCustomers, taskMetrics, upcomingTasks, overdueTasks] = await Promise.all([
     getDashboardStats(),
     getLeadPipeline(),
     getRecentActivities(),
+    getRecentCustomers(),
+    getTaskDashboardMetrics(),
+    getUpcomingTasks(),
+    getOverdueTasks(),
   ]);
 
   const statCards = [
     { id: "customers", label: "Total Customers", value: stats.totalCustomers.toString(), change: "Across workspace" },
+    { id: "active-customers", label: "Active Customers", value: stats.activeCustomers.toString(), change: "Current accounts" },
+    { id: "new-customers", label: "New Customers", value: stats.newCustomers.toString(), change: "Last 30 days" },
     { id: "leads", label: "Active Leads", value: stats.activeLeads.toString(), change: "In pipeline" },
     { id: "tasks", label: "Pending Tasks", value: stats.pendingTasks.toString(), change: "Awaiting action" },
+    { id: "total-tasks", label: "Total Tasks", value: taskMetrics.total.toString(), change: "Across workspace" },
     {
       id: "revenue",
       label: "Pipeline Value",
@@ -50,6 +62,10 @@ export default async function DashboardPage() {
       }).format(stats.pipelineValue),
       change: "Active opportunities",
     },
+    { id: "open-tasks", label: "My Open Tasks", value: taskMetrics.myOpen.toString(), change: "Assigned to you" },
+    { id: "due-today", label: "Due Today", value: taskMetrics.dueToday.toString(), change: "Open tasks" },
+    { id: "overdue", label: "Overdue", value: taskMetrics.overdue.toString(), change: "Needs attention" },
+    { id: "completed-week", label: "Completed This Week", value: taskMetrics.completedThisWeek.toString(), change: "Task progress" },
   ];
 
   const mappedActivities = activities.map((activity) => ({
@@ -91,6 +107,42 @@ export default async function DashboardPage() {
         </div>
         <div className="xl:col-span-2">
           <RecentActivity items={mappedActivities} />
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Recent customers</h2>
+            <p className="mt-1 text-sm text-muted-foreground">The latest accounts added to your workspace.</p>
+          </div>
+          <Link href="/customers" className="text-sm font-medium text-accent hover:underline">View all</Link>
+        </div>
+        {recentCustomers.length === 0 ? (
+          <p className="mt-5 text-sm text-muted-foreground">No customers have been added yet.</p>
+        ) : (
+          <div className="mt-4 divide-y divide-border">
+            {recentCustomers.map((customer) => (
+              <Link key={customer.id} href={`/customers/${customer.id}`} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0 hover:bg-muted/40">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{customer.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{customer.company || customer.email || "No company details"}</p>
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">{new Date(customer.created_at).toLocaleDateString()}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-foreground">Upcoming tasks</h2>
+          {upcomingTasks.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No upcoming tasks.</p> : <div className="mt-4 divide-y divide-border">{upcomingTasks.slice(0, 5).map((task) => <Link key={task.id} href={`/tasks/${task.id}`} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"><span className="truncate text-sm font-medium">{task.title}</span><span className="shrink-0 text-xs text-muted-foreground">{task.due_date ? new Date(task.due_date).toLocaleString() : "No due date"}</span></Link>)}</div>}
+        </div>
+        <div className="rounded-xl border border-danger/20 bg-danger/5 p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-danger">Overdue tasks</h2>
+          {overdueTasks.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No overdue tasks.</p> : <div className="mt-4 divide-y divide-danger/10">{overdueTasks.slice(0, 5).map((task) => <Link key={task.id} href={`/tasks/${task.id}`} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"><span className="truncate text-sm font-medium text-foreground">{task.title}</span><span className="shrink-0 text-xs text-danger">{task.due_date ? new Date(task.due_date).toLocaleDateString() : "Overdue"}</span></Link>)}</div>}
         </div>
       </section>
     </div>

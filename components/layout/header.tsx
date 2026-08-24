@@ -5,17 +5,23 @@ import { MenuIcon } from "@/components/icons";
 import { getPageMeta } from "@/lib/navigation";
 import { UserNav } from "@/components/layout/user-nav";
 import type { CurrentUserContext } from "@/lib/auth/actions";
+import type { Notification } from "@/lib/notification-actions";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 
 type HeaderProps = {
   mobileNavOpen: boolean;
   onOpenMobileNav: () => void;
   userContext?: CurrentUserContext;
+  notifications?: Notification[];
+  unreadCount?: number;
 };
 
 export function Header({
   mobileNavOpen,
   onOpenMobileNav,
   userContext,
+  notifications,
+  unreadCount,
 }: HeaderProps) {
   const pathname = usePathname();
   const { title, description } = getPageMeta(pathname);
@@ -56,6 +62,12 @@ export function Header({
             <span className="hidden rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline">
               Demo mode
             </span>
+          )}
+          {userContext?.user && (
+            <NotificationCenter
+              notifications={notifications ?? []}
+              unreadCount={unreadCount ?? 0}
+            />
           )}
           <UserNav user={userPayload} />
         </div>

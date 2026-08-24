@@ -11,6 +11,7 @@ export type CustomerStatus = "active" | "inactive" | "lead";
 export type LeadStage = "new" | "contacted" | "qualified" | "proposal" | "won" | "lost";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type TaskType = "CALL" | "EMAIL" | "MEETING" | "FOLLOW_UP" | "TODO";
 export type SubscriptionPlan = "free" | "starter" | "pro" | "enterprise";
 export type SubscriptionStatus = "active" | "trialing" | "past_due" | "canceled" | "incomplete";
 
@@ -25,6 +26,8 @@ export interface Database {
           avatar_url: string | null;
           phone: string | null;
           job_title: string | null;
+          email_notifications_enabled: boolean;
+          in_app_notifications_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -35,6 +38,8 @@ export interface Database {
           avatar_url?: string | null;
           phone?: string | null;
           job_title?: string | null;
+          email_notifications_enabled?: boolean;
+          in_app_notifications_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -45,6 +50,8 @@ export interface Database {
           avatar_url?: string | null;
           phone?: string | null;
           job_title?: string | null;
+          email_notifications_enabled?: boolean;
+          in_app_notifications_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -249,6 +256,7 @@ export interface Database {
           organization_id: string;
           title: string;
           description: string | null;
+          task_type: TaskType;
           priority: TaskPriority;
           status: TaskStatus;
           due_date: string | null;
@@ -256,6 +264,7 @@ export interface Database {
           customer_id: string | null;
           lead_id: string | null;
           created_by: string | null;
+          completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -264,6 +273,7 @@ export interface Database {
           organization_id: string;
           title: string;
           description?: string | null;
+          task_type?: TaskType;
           priority?: TaskPriority;
           status?: TaskStatus;
           due_date?: string | null;
@@ -271,6 +281,7 @@ export interface Database {
           customer_id?: string | null;
           lead_id?: string | null;
           created_by?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -279,6 +290,7 @@ export interface Database {
           organization_id?: string;
           title?: string;
           description?: string | null;
+          task_type?: TaskType;
           priority?: TaskPriority;
           status?: TaskStatus;
           due_date?: string | null;
@@ -286,6 +298,7 @@ export interface Database {
           customer_id?: string | null;
           lead_id?: string | null;
           created_by?: string | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -393,6 +406,9 @@ export interface Database {
           message: string;
           type: string;
           link: string | null;
+          related_entity_type: string | null;
+          related_entity_id: string | null;
+          dedupe_key: string | null;
           is_read: boolean;
           created_at: string;
         };
@@ -404,6 +420,9 @@ export interface Database {
           message: string;
           type?: string;
           link?: string | null;
+          related_entity_type?: string | null;
+          related_entity_id?: string | null;
+          dedupe_key?: string | null;
           is_read?: boolean;
           created_at?: string;
         };
@@ -415,6 +434,9 @@ export interface Database {
           message?: string;
           type?: string;
           link?: string | null;
+          related_entity_type?: string | null;
+          related_entity_id?: string | null;
+          dedupe_key?: string | null;
           is_read?: boolean;
           created_at?: string;
         };
@@ -528,6 +550,19 @@ export interface Database {
       is_org_admin: {
         Args: { org_id: string };
         Returns: boolean;
+      };
+      create_notification: {
+        Args: {
+          recipient_id: string;
+          notification_organization_id: string;
+          notification_title: string;
+          notification_message: string;
+          notification_type: string;
+          notification_entity_type?: string | null;
+          notification_entity_id?: string | null;
+          notification_dedupe_key?: string | null;
+        };
+        Returns: string | null;
       };
     };
     Enums: {

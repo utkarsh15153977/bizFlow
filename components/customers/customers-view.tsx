@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -25,7 +26,9 @@ const columns: Column<Customer>[] = [
     header: "Name",
     cell: (row) => (
       <div>
-        <p className="font-medium">{row.name}</p>
+        <Link href={`/customers/${row.id}`} className="font-medium text-foreground hover:text-accent hover:underline">
+          {row.name}
+        </Link>
         <p className="text-muted-foreground md:hidden">{row.company ?? ""}</p>
       </div>
     ),
@@ -70,6 +73,9 @@ const columns: Column<Customer>[] = [
     hideOnMobile: true,
     cell: (row) => (
       <div className="flex items-center gap-2">
+        <Link href={`/customers/${row.id}`} className="text-xs font-medium text-accent hover:underline">
+          View
+        </Link>
         <Button
           variant="ghost"
           className="h-8 px-2 text-xs"
@@ -215,6 +221,9 @@ function DeleteConfirm({ customer, onClose }: { customer: Customer; onClose: () 
 
 export function CustomersView({ customers }: { customers: Customer[] }) {
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
+  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [deleteCustomerState, setDeleteCustomerState] = useState<Customer | null>(null);
@@ -243,31 +252,64 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
 
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    if (!value) return customers;
-    return customers.filter((customer) =>
+    const matching = customers.filter((customer) =>
+      (statusFilter === "all" || customer.status === statusFilter) &&
       [customer.name, customer.company ?? "", customer.email ?? "", customer.status]
         .join(" ")
         .toLowerCase()
         .includes(value),
     );
-  }, [customers, query]);
+
+    return [...matching].sort((a, b) => {
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "status") return a.status.localeCompare(b.status);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [customers, query, sortBy, statusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sortBy, statusFilter]);
+
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleCustomers = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <SearchField
-          id="customer-search"
-          label="Search customers"
-          value={query}
-          onChange={setQuery}
-          placeholder="Search by name, company, or email"
-        />
+        <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
+          <SearchField
+            id="customer-search"
+            label="Search customers"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search by name, company, or email"
+          />
+          <label className="space-y-1.5 text-sm font-medium">
+            <span className="block">Status</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="lead">Lead</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-sm font-medium">
+            <span className="block">Sort</span>
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
+              <option value="recent">Most recent</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+            </select>
+          </label>
+        </div>
         <Button onClick={() => { setEditCustomer(null); setCreateOpen(true); }}>Add customer</Button>
       </div>
       <DataTable
         caption="Customers"
         columns={columns}
-        rows={filtered}
+        rows={visibleCustomers}
         getRowId={(row) => row.id}
         emptyIcon={<InboxIcon />}
         emptyTitle={customers.length === 0 ? "No customers yet" : "No matching customers"}
@@ -282,6 +324,16 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
           ) : undefined
         }
       />
+
+      {filtered.length > pageSize && (
+        <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
+          <span>Page {page} of {pageCount}</span>
+          <div className="flex gap-2">
+            <Button variant="secondary" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</Button>
+            <Button variant="secondary" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)}>Next</Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Add customer" description="Create a new customer account.">
         <CustomerForm onClose={() => setCreateOpen(false)} />

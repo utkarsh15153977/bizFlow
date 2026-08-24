@@ -101,12 +101,12 @@ export function UserNav({ user }: UserNavProps) {
 
           <div className="py-1">
             <Link
-              href="/settings"
+              href="/profile"
               onClick={() => setIsOpen(false)}
               className="flex w-full items-center rounded-lg px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
               role="menuitem"
             >
-              Profile & Settings
+              Profile
             </Link>
           </div>
 

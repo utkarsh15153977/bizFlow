@@ -11,7 +11,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/customers") ||
     pathname.startsWith("/leads") ||
     pathname.startsWith("/tasks") ||
-    pathname.startsWith("/settings");
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/profile") ||
+    pathname.startsWith("/notifications");
 
   const isAuthPage =
     pathname === "/login" ||

@@ -3,6 +3,8 @@ import Link from "next/link";
 import { RevenueOverview } from "@/components/dashboard/revenue-overview";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { PageHeader } from "@/components/ui/page-header";
+import { AnalyticsPanel } from "@/components/dashboard/analytics-panel";
+import { getAnalytics } from "@/lib/analytics-actions";
 import {
   getDashboardStats,
   getLeadPipeline,
@@ -34,8 +36,9 @@ function timeAgo(dateString: string): string {
   });
 }
 
-export default async function DashboardPage() {
-  const [stats, pipeline, activities, recentCustomers, taskMetrics, upcomingTasks, overdueTasks] = await Promise.all([
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
+  const params = await searchParams;
+  const [stats, pipeline, activities, recentCustomers, taskMetrics, upcomingTasks, overdueTasks, analytics] = await Promise.all([
     getDashboardStats(),
     getLeadPipeline(),
     getRecentActivities(),
@@ -43,6 +46,7 @@ export default async function DashboardPage() {
     getTaskDashboardMetrics(),
     getUpcomingTasks(),
     getOverdueTasks(),
+    getAnalytics({ from: params.from, to: params.to }),
   ]);
 
   const statCards = [
@@ -145,6 +149,7 @@ export default async function DashboardPage() {
           {overdueTasks.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No overdue tasks.</p> : <div className="mt-4 divide-y divide-danger/10">{overdueTasks.slice(0, 5).map((task) => <Link key={task.id} href={`/tasks/${task.id}`} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"><span className="truncate text-sm font-medium text-foreground">{task.title}</span><span className="shrink-0 text-xs text-danger">{task.due_date ? new Date(task.due_date).toLocaleDateString() : "Overdue"}</span></Link>)}</div>}
         </div>
       </section>
+      {analytics && <AnalyticsPanel analytics={analytics} from={params.from} to={params.to} />}
     </div>
   );
 }

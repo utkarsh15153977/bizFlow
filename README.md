@@ -35,6 +35,7 @@ Execute the SQL migration in your Supabase project's SQL Editor:
 - [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
 - [database/migrations/003_tasks_enhancements.sql](database/migrations/003_tasks_enhancements.sql)
 - [database/migrations/004_notifications_enhancements.sql](database/migrations/004_notifications_enhancements.sql)
+- Activities and analytics reuse the existing `activities`, `customers`, and `tasks` tables; no Phase 6 migration was required.
 
 Notification due-date helpers are intentionally mutation/scheduler-ready only; no page load creates due-today or overdue notifications. A future cron or scheduled server job can call `createTaskDueNotification` for assigned tasks.
 - [database/migrations/002_profile_preferences.sql](database/migrations/002_profile_preferences.sql)

@@ -3,15 +3,32 @@
 import { usePathname } from "next/navigation";
 import { MenuIcon } from "@/components/icons";
 import { getPageMeta } from "@/lib/navigation";
+import { UserNav } from "@/components/layout/user-nav";
+import type { CurrentUserContext } from "@/lib/auth/actions";
 
 type HeaderProps = {
   mobileNavOpen: boolean;
   onOpenMobileNav: () => void;
+  userContext?: CurrentUserContext;
 };
 
-export function Header({ mobileNavOpen, onOpenMobileNav }: HeaderProps) {
+export function Header({
+  mobileNavOpen,
+  onOpenMobileNav,
+  userContext,
+}: HeaderProps) {
   const pathname = usePathname();
   const { title, description } = getPageMeta(pathname);
+
+  const userPayload = userContext?.user
+    ? {
+        email: userContext.user.email,
+        fullName: userContext.profile?.full_name,
+        avatarUrl: userContext.profile?.avatar_url,
+        workspaceName: userContext.organization?.name,
+        role: userContext.role,
+      }
+    : null;
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur">
@@ -28,23 +45,19 @@ export function Header({ mobileNavOpen, onOpenMobileNav }: HeaderProps) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{title}</p>
+          <p className="truncate text-sm font-semibold text-foreground">{title}</p>
           <p className="hidden truncate text-xs text-muted-foreground sm:block">
             {description}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="hidden rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline">
-            Demo data
-          </span>
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground"
-            aria-hidden="true"
-          >
-            JD
-          </div>
-          <span className="sr-only">Signed in as Jane Doe (placeholder)</span>
+          {!userContext?.user && (
+            <span className="hidden rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline">
+              Demo mode
+            </span>
+          )}
+          <UserNav user={userPayload} />
         </div>
       </div>
     </header>

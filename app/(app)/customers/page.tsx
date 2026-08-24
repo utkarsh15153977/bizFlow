@@ -1,19 +1,15 @@
 import { CustomersView } from "@/components/customers/customers-view";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { customers } from "@/lib/mock-data";
+import { getCustomers } from "@/lib/crm-actions";
 
-export default function CustomersPage() {
+export default async function CustomersPage() {
+  const customers = await getCustomers();
+
   return (
     <div>
       <PageHeader
         title="Customers"
         description="Accounts currently in the BizFlow workspace."
-        actions={
-          <Button disabled aria-disabled="true">
-            Add customer
-          </Button>
-        }
       />
       <CustomersView customers={customers} />
     </div>

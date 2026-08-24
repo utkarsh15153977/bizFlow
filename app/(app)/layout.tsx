@@ -1,10 +1,17 @@
 import type { ReactNode } from "react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { getCurrentUserContext } from "@/lib/auth/actions";
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: Readonly<{
   children: ReactNode;
 }>) {
-  return <DashboardShell>{children}</DashboardShell>;
+  const userContext = await getCurrentUserContext();
+
+  return (
+    <DashboardShell userContext={userContext}>
+      {children}
+    </DashboardShell>
+  );
 }

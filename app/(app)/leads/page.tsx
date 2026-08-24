@@ -1,19 +1,15 @@
 import { LeadsView } from "@/components/leads/leads-view";
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { leads } from "@/lib/mock-data";
+import { getLeads } from "@/lib/crm-actions";
 
-export default function LeadsPage() {
+export default async function LeadsPage() {
+  const leads = await getLeads();
+
   return (
     <div>
       <PageHeader
         title="Leads"
-        description="Pipeline placeholders until live CRM data is connected."
-        actions={
-          <Button disabled aria-disabled="true">
-            Add lead
-          </Button>
-        }
+        description="Track inbound interest and sales opportunities."
       />
       <LeadsView leads={leads} />
     </div>

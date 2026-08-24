@@ -4,8 +4,15 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
+import type { CurrentUserContext } from "@/lib/auth/actions";
 
-export function DashboardShell({ children }: { children: ReactNode }) {
+export function DashboardShell({
+  children,
+  userContext,
+}: {
+  children: ReactNode;
+  userContext?: CurrentUserContext;
+}) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
 
@@ -45,12 +52,15 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       <Sidebar
         mobileOpen={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
+        organization={userContext?.organization}
+        role={userContext?.role}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
           mobileNavOpen={mobileNavOpen}
           onOpenMobileNav={() => setMobileNavOpen(true)}
+          userContext={userContext}
         />
         <main id="main-content" className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           {children}

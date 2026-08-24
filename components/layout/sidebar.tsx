@@ -4,14 +4,23 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CloseIcon, navIcons } from "@/components/icons";
 import { isNavActive, navItems } from "@/lib/navigation";
+import type { Tables, UserRole } from "@/types/database.types";
 
 type SidebarProps = {
   mobileOpen: boolean;
   onClose: () => void;
+  organization?: Tables<"organizations"> | null;
+  role?: UserRole | null;
 };
 
-export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
+export function Sidebar({
+  mobileOpen,
+  onClose,
+  organization,
+  role,
+}: SidebarProps) {
   const pathname = usePathname();
+  const workspaceName = organization?.name || "BizFlow Workspace";
 
   return (
     <>
@@ -77,8 +86,17 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         </nav>
 
         <div className="border-t border-white/10 px-5 py-4">
-          <p className="text-xs font-medium text-sidebar-muted">Workspace</p>
-          <p className="mt-1 text-sm">BizFlow Demo</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-sidebar-muted">Workspace</p>
+            {role && (
+              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted">
+                {role}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 truncate text-sm font-medium text-sidebar-foreground">
+            {workspaceName}
+          </p>
         </div>
       </aside>
     </>

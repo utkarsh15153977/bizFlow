@@ -1,5 +1,11 @@
-import type { ActivityItem } from "@/lib/mock-data";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+type ActivityItem = {
+  id: string;
+  title: string;
+  detail: string;
+  time: string;
+};
 
 export function RecentActivity({ items }: { items: ActivityItem[] }) {
   return (

@@ -41,6 +41,45 @@ function getSafeRedirectUrl(redirectTo?: string | null): string {
   return "/";
 }
 
+function resolveActionFormData(
+  prevStateOrFormData: AuthActionResult | null | FormData,
+  formDataOrUndefined?: FormData,
+): FormData | AuthActionResult {
+  if (formDataOrUndefined instanceof FormData) return formDataOrUndefined;
+  if (prevStateOrFormData instanceof FormData) return prevStateOrFormData;
+  return { error: "Invalid form submission." };
+}
+
+function getConfiguredAppOrigin(): string | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) return null;
+
+  try {
+    const url = new URL(appUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function getTrustedAppOrigin(): Promise<string | null> {
+  const configuredOrigin = getConfiguredAppOrigin();
+  if (configuredOrigin) return configuredOrigin;
+
+  if (process.env.NODE_ENV !== "development") {
+    return null;
+  }
+
+  const headersList = await headers();
+  const host = headersList.get("host");
+  if (!host) return null;
+
+  return `http://${host}`;
+}
+
 /**
  * Retrieves the currently authenticated Supabase user.
  */
@@ -222,9 +261,8 @@ export async function signInWithPassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
 
   const email = formData.get("email")?.toString().trim();
   const password = formData.get("password")?.toString();
@@ -283,9 +321,8 @@ export async function signUpWithPassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
 
   const fullName = formData.get("fullName")?.toString().trim();
   const companyName = (
@@ -325,10 +362,10 @@ export async function signUpWithPassword(
   }
 
   try {
-    const headersList = await headers();
-    const host = headersList.get("host") || "localhost:3000";
-    const protocol = headersList.get("x-forwarded-proto") || "http";
-    const origin = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
+    const origin = await getTrustedAppOrigin();
+    if (!origin) {
+      return { error: "Application URL is not configured." };
+    }
 
     const supabase = await createClient();
     const { data, error } = await supabase.auth.signUp({
@@ -414,9 +451,8 @@ export async function requestPasswordReset(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
 
   const email = formData.get("email")?.toString().trim();
 
@@ -432,10 +468,10 @@ export async function requestPasswordReset(
   }
 
   try {
-    const headersList = await headers();
-    const host = headersList.get("host") || "localhost:3000";
-    const protocol = headersList.get("x-forwarded-proto") || "http";
-    const origin = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
+    const origin = await getTrustedAppOrigin();
+    if (!origin) {
+      return { error: "Application URL is not configured." };
+    }
 
     const supabase = await createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -475,9 +511,8 @@ export async function updatePassword(
   _prevState: AuthActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<AuthActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
 
   const password = formData.get("password")?.toString();
   const confirmPassword = formData.get("confirmPassword")?.toString();

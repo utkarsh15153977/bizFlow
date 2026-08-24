@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth/actions";
 import type { Tables } from "@/types/database.types";
+import { isOrgAdminOrOwner } from "@/lib/auth/roles";
 
 type ActionResult = {
   error?: string;
@@ -14,10 +15,25 @@ const CUSTOMER_STATUSES = ["active", "inactive", "lead"] as const;
 const LEAD_STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
 const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 const TASK_STATUSES = ["pending", "in_progress", "completed", "cancelled"] as const;
+const ORGANIZATION_TIMEZONES = [
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+] as const;
 
 async function getOrgId(): Promise<string | null> {
   const context = await getCurrentUserContext();
   return context.organization?.id ?? null;
+}
+
+async function getAuthorizedOrgContext() {
+  const context = await getCurrentUserContext();
+  return {
+    orgId: context.organization?.id ?? null,
+    role: context.role,
+    userId: context.user?.id ?? null,
+  };
 }
 
 function validateRequired(value: unknown, field: string): string | null {
@@ -25,6 +41,15 @@ function validateRequired(value: unknown, field: string): string | null {
     return `${field} is required.`;
   }
   return null;
+}
+
+function resolveActionFormData(
+  prevStateOrFormData: ActionResult | null | FormData,
+  formDataOrUndefined?: FormData,
+): FormData | ActionResult {
+  if (formDataOrUndefined instanceof FormData) return formDataOrUndefined;
+  if (prevStateOrFormData instanceof FormData) return prevStateOrFormData;
+  return { error: "Invalid form submission." };
 }
 
 function validateEnum<T extends string>(
@@ -79,9 +104,8 @@ export async function createCustomer(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -123,9 +147,8 @@ export async function updateCustomer(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -172,11 +195,11 @@ export async function deleteCustomer(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
-  const orgId = await getOrgId();
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
+  const { orgId, role } = await getAuthorizedOrgContext();
   if (!orgId) return { error: "No workspace found." };
+  if (!isOrgAdminOrOwner(role)) return { error: "You do not have permission to delete customers." };
 
   const id = formData.get("id")?.toString().trim();
   if (!id) return { error: "Customer ID is required." };
@@ -222,9 +245,8 @@ export async function createLead(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -270,9 +292,8 @@ export async function updateLead(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -323,11 +344,11 @@ export async function deleteLead(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
-  const orgId = await getOrgId();
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
+  const { orgId, role } = await getAuthorizedOrgContext();
   if (!orgId) return { error: "No workspace found." };
+  if (!isOrgAdminOrOwner(role)) return { error: "You do not have permission to delete leads." };
 
   const id = formData.get("id")?.toString().trim();
   if (!id) return { error: "Lead ID is required." };
@@ -374,9 +395,8 @@ export async function createTask(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -418,9 +438,8 @@ export async function updateTask(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -493,9 +512,8 @@ export async function deleteTask(
   _prevState: ActionResult | null | FormData,
   formDataOrUndefined?: FormData,
 ): Promise<ActionResult> {
-  const formData = (formDataOrUndefined instanceof FormData
-    ? formDataOrUndefined
-    : _prevState) as FormData;
+  const formData = resolveActionFormData(_prevState, formDataOrUndefined);
+  if (!(formData instanceof FormData)) return formData;
   const orgId = await getOrgId();
   if (!orgId) return { error: "No workspace found." };
 
@@ -604,22 +622,25 @@ export async function getRecentActivities() {
 // ─── SETTINGS ────────────────────────────────────────────────────────────────
 
 export async function updateOrganizationSettings(formData: FormData): Promise<ActionResult> {
-  const orgId = await getOrgId();
+  const { orgId, role } = await getAuthorizedOrgContext();
   if (!orgId) return { error: "No workspace found." };
+  if (!isOrgAdminOrOwner(role)) return { error: "You do not have permission to update workspace settings." };
 
   const name = formData.get("name")?.toString().trim();
-  const timezone = formData.get("timezone")?.toString().trim();
+  const timezone = formData.get("timezone")?.toString().trim() || "America/New_York";
   const contactEmail = formData.get("contactEmail")?.toString().trim() || null;
 
   const nameError = validateRequired(name, "Workspace name");
   if (nameError) return { error: nameError };
+  const validatedTimezone = validateEnum(timezone, ORGANIZATION_TIMEZONES, "Timezone");
+  if (typeof validatedTimezone !== "string") return validatedTimezone;
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("organizations")
     .update({
       name,
-      timezone: timezone || "America/New_York",
+      timezone: validatedTimezone,
       contact_email: contactEmail,
     })
     .eq("id", orgId);

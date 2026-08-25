@@ -461,7 +461,7 @@ export async function signUpWithPassword(
       }
 
       return {
-        error: error.message || "Unable to create account.",
+        error: "Unable to create account. Please try again.",
       };
     }
 
@@ -582,21 +582,6 @@ export async function requestPasswordReset(
       });
 
     if (error) {
-      console.error(
-        "========== PASSWORD RESET ERROR ==========",
-      );
-
-      console.error("Supabase error:", error);
-      console.error("Message:", error.message);
-      console.error("Name:", error.name);
-      console.error("Status:", error.status);
-      console.error("Origin:", origin);
-      console.error("Redirect URL:", redirectUrl);
-
-      console.error(
-        "==========================================",
-      );
-
       if (
         error.message === "fetch failed" ||
         error.name === "AuthRetryableFetchError"
@@ -609,7 +594,6 @@ export async function requestPasswordReset(
 
       return {
         error:
-          error.message ||
           "Unable to send password reset email.",
       };
     }
@@ -623,14 +607,6 @@ export async function requestPasswordReset(
     if (err instanceof Error && err.message === "NEXT_REDIRECT") {
       throw err;
     }
-
-    console.error(
-      "========== PASSWORD RESET EXCEPTION ==========",
-    );
-    console.error("Error:", err);
-    console.error(
-      "==============================================",
-    );
 
     return {
       error:

@@ -11,11 +11,12 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
   if (!context.user) redirect("/login");
 
   const { id } = await params;
-  const [task, customers, assignees] = await Promise.all([
+  const [task, customersResult, assignees] = await Promise.all([
     getTask(id),
-    getCustomers(),
+    getCustomers({ pageSize: 100 }),
     getTaskAssignees(),
   ]);
+  const customers = customersResult.data;
   if (!task) notFound();
 
   const customer = customers.find((item) => item.id === task.customer_id);

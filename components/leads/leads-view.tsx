@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useActionState } from "react";
+import { useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Dialog } from "@/components/ui/dialog";
 import type { Tables } from "@/types/database.types";
 import { createLead, updateLead, deleteLead } from "@/lib/crm-actions";
+import type { LeadFilters } from "@/lib/crm-actions";
 
 type Lead = Tables<"leads">;
 
@@ -227,23 +228,33 @@ function DeleteConfirm({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   );
 }
 
-export function LeadsView({ leads }: { leads: Lead[] }) {
-  const [query, setQuery] = useState("");
+export function LeadsView({ leads, filters, total, page, pageSize, totalPages }: { leads: Lead[]; filters: LeadFilters; total: number; page: number; pageSize: number; totalPages: number }) {
+  const router = useRouter();
+  const [search, setSearch] = useState(filters.search ?? "");
+  const [stageFilter] = useState(filters.stage ?? "all");
+  // const [sortBy] = useState(filters.sortBy ?? "recent");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editLead, setEditLead] = useState<Lead | null>(null);
-  const [deleteLeadState, setDeleteLeadState] = useState<Lead | null>(null);
+  const [editLead, setEditLead] = useState<Tables<"leads"> | null>(null);
+  const [deleteLeadState, setDeleteLeadState] = useState<Tables<"leads"> | null>(null);
+
+  function updateFilters(values: Record<string, string>) {
+    const params = new URLSearchParams();
+    const merged = { ...filters, ...values, page: String(values.page ?? filters.page ?? 1) };
+    Object.entries(merged).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
+    router.push(`/leads?${params.toString()}`);
+  }
 
   useEffect(() => {
     function handleEdit(event: Event) {
       setCreateOpen(false);
       setDeleteLeadState(null);
-      setEditLead((event as CustomEvent<Lead>).detail);
+      setEditLead((event as CustomEvent<Tables<"leads">>).detail);
     }
 
     function handleDelete(event: Event) {
       setCreateOpen(false);
       setEditLead(null);
-      setDeleteLeadState((event as CustomEvent<Lead>).detail);
+      setDeleteLeadState((event as CustomEvent<Tables<"leads">>).detail);
     }
 
     window.addEventListener("edit-lead", handleEdit);
@@ -255,49 +266,61 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
     };
   }, []);
 
-  const filtered = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    if (!value) return leads;
-    return leads.filter((lead) =>
-      [lead.name, lead.company ?? "", lead.source, lead.email ?? "", lead.stage]
-        .join(" ")
-        .toLowerCase()
-        .includes(value),
-    );
-  }, [leads, query]);
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        {leads.length > 0 && (
+        <div className="flex flex-wrap gap-3">
           <SearchField
             id="lead-search"
             label="Search leads"
-            value={query}
-            onChange={setQuery}
+            value={search}
+            onChange={setSearch}
+            onKeyDown={(event) => { if (event.key === "Enter") updateFilters({ search: event.currentTarget.value }); }}
             placeholder="Search by name, source, or email"
           />
-        )}
+          <label className="space-y-1.5 text-sm font-medium">
+            <span className="block">Stage</span>
+            <select value={stageFilter} onChange={(event) => updateFilters({ stage: event.target.value })} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
+              <option value="all">All stages</option>
+              <option value="new">New</option>
+              <option value="contacted">Contacted</option>
+              <option value="qualified">Qualified</option>
+              <option value="proposal">Proposal</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+          </label>
+        </div>
         <Button onClick={() => { setEditLead(null); setCreateOpen(true); }}>Add lead</Button>
       </div>
       <DataTable
         caption="Leads"
         columns={columns}
-        rows={filtered}
+        rows={leads}
         getRowId={(row) => row.id}
         emptyIcon={<InboxIcon />}
-        emptyTitle={leads.length === 0 ? "No leads yet" : "No matching leads"}
+        emptyTitle={total === 0 ? "No leads yet" : "No matching leads"}
         emptyDescription={
-          leads.length === 0
+          total === 0
             ? "New opportunities will show up here as a clean pipeline table."
             : "Try a different search term to find a lead."
         }
         emptyAction={
-          leads.length === 0 ? (
+          total === 0 ? (
             <Button onClick={() => { setEditLead(null); setCreateOpen(true); }}>Add lead</Button>
           ) : undefined
         }
       />
+
+      {total > pageSize && (
+        <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
+          <span>Page {page} of {totalPages} ({total} total)</span>
+          <div className="flex gap-2">
+            <Button variant="secondary" disabled={page === 1} onClick={() => updateFilters({ page: String(page - 1) })}>Previous</Button>
+            <Button variant="secondary" disabled={page >= totalPages} onClick={() => updateFilters({ page: String(page + 1) })}>Next</Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Add lead" description="Create a new sales lead.">
         <LeadForm onClose={() => setCreateOpen(false)} />

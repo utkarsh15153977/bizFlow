@@ -21,11 +21,22 @@ export type ActivityRecord = Tables<"activities"> & {
 };
 
 const MAX_PAGE_SIZE = 50;
+const MAX_SEARCH_TERM_LENGTH = 64;
+const MAX_NAME_MATCH_IDS = 100;
 
 function getDateRange(from?: string, to?: string) {
   const start = from && !Number.isNaN(Date.parse(from)) ? new Date(`${from}T00:00:00.000Z`) : null;
   const end = to && !Number.isNaN(Date.parse(to)) ? new Date(`${to}T23:59:59.999Z`) : null;
   return { start, end };
+}
+
+// Sanitizes a search term for use inside PostgREST or=(...) ilike filters:
+// strips characters with syntactic meaning and bounds the length.
+function toSearchTerm(search?: string): string | null {
+  const trimmed = search?.trim().toLowerCase();
+  if (!trimmed) return null;
+  const sanitized = trimmed.replace(/[,()"\\]/g, "").slice(0, MAX_SEARCH_TERM_LENGTH).trim();
+  return sanitized || null;
 }
 
 type ScopedContext = CurrentUserContext & {
@@ -76,6 +87,40 @@ export async function getActivities(filters: ActivityFilters = {}) {
   if (start) query = query.gte("created_at", start.toISOString());
   if (end) query = query.lte("created_at", end.toISOString());
 
+  // Search must run in PostgreSQL BEFORE count/order/range so the total and
+  // every page operate on the filtered dataset. Title/detail/type are matched
+  // directly; customer and creator names are resolved to org-scoped ids first
+  // because activities.entity_id is polymorphic and has no embeddable FK.
+  const searchTerm = toSearchTerm(filters.search);
+  if (searchTerm) {
+    const pattern = `"%${searchTerm}%"`;
+    const [matchingCustomers, matchingMembers] = await Promise.all([
+      supabase
+        .from("customers")
+        .select("id")
+        .eq("organization_id", context.organization.id)
+        .ilike("name", pattern)
+        .limit(MAX_NAME_MATCH_IDS),
+      supabase
+        .from("organization_members")
+        .select("user_id")
+        .eq("organization_id", context.organization.id)
+        .or(`profiles.full_name.ilike.${pattern},profiles.email.ilike.${pattern}`)
+        .limit(MAX_NAME_MATCH_IDS),
+    ]);
+
+    const conditions = [
+      `title.ilike.${pattern}`,
+      `detail.ilike.${pattern}`,
+      `entity_type.ilike.${pattern}`,
+    ];
+    const customerIds = (matchingCustomers.data ?? []).map((customer) => customer.id);
+    if (customerIds.length > 0) conditions.push(`entity_id.in.(${customerIds.join(",")})`);
+    const userIds = (matchingMembers.data ?? []).map((member) => member.user_id);
+    if (userIds.length > 0) conditions.push(`user_id.in.(${userIds.join(",")})`);
+    query = query.or(conditions.join(","));
+  }
+
   const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
   if (error || !data) return { rows: [] as ActivityRecord[], total: 0 };
 
@@ -87,14 +132,13 @@ export async function getActivities(filters: ActivityFilters = {}) {
   ]);
   const customerNames = new Map((customers ?? []).map((customer) => [customer.id, customer.name]));
   const creatorNames = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name || profile.email]));
-  const search = filters.search?.trim().toLowerCase();
-  const rows = (search ? data.filter((row) => [row.title, row.detail ?? "", row.entity_type, customerNames.get(row.entity_id ?? "") ?? "", creatorNames.get(row.user_id ?? "") ?? ""].join(" ").toLowerCase().includes(search)) : data).map((row) => ({
+  const rows = data.map((row) => ({
     ...row,
     customerName: row.entity_type === "customer" ? customerNames.get(row.entity_id ?? "") ?? null : null,
     creatorName: creatorNames.get(row.user_id ?? "") ?? null,
   }));
 
-  return { rows, total: search ? rows.length : count ?? 0 };
+  return { rows, total: count ?? 0 };
 }
 
 export async function getActivityById(id: string): Promise<ActivityRecord | null> {
@@ -129,38 +173,58 @@ export async function getAnalytics(range: { from?: string; to?: string } = {}) {
   const { start, end } = getDateRange(range.from, range.to);
   const fromDate = start?.toISOString();
   const toDate = end?.toISOString();
-  const applyRange = <T extends { gte: (column: string, value: string) => T; lte: (column: string, value: string) => T }>(query: T) => {
-    let result = query;
-    if (fromDate) result = result.gte("created_at", fromDate);
-    if (toDate) result = result.lte("created_at", toDate);
-    return result;
-  };
 
-  const [customersResult, tasksResult, activitiesResult, activeCustomers, inactiveCustomers, leadCustomers, openTasks, completedTasks, overdueTasks] = await Promise.all([
-    applyRange(supabase.from("customers").select("created_at, status").eq("organization_id", context.organization.id)),
-    applyRange(supabase.from("tasks").select("created_at, completed_at, status, due_date").eq("organization_id", context.organization.id)),
-    applyRange(supabase.from("activities").select("created_at, entity_type").eq("organization_id", context.organization.id)),
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).eq("status", "active"),
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).eq("status", "inactive"),
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).eq("status", "lead"),
-    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).in("status", ["pending", "in_progress"]),
-    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).eq("status", "completed"),
-    supabase.from("tasks").select("id", { count: "exact", head: true }).eq("organization_id", context.organization.id).lt("due_date", new Date().toISOString()).in("status", ["pending", "in_progress"]),
-  ]);
-  const customers = customersResult.data ?? [];
-  const tasks = tasksResult.data ?? [];
-  const activities = activitiesResult.data ?? [];
-  const createdByDay = (items: Array<{ created_at: string }>) => items.reduce<Record<string, number>>((result, item) => { const day = item.created_at.slice(0, 10); result[day] = (result[day] ?? 0) + 1; return result; }, {});
-  const activityTypes = activities.reduce<Record<string, number>>((result, item) => { result[item.entity_type] = (result[item.entity_type] ?? 0) + 1; return result; }, {});
-  const taskStatuses = tasks.reduce<Record<string, number>>((result, item) => { result[item.status] = (result[item.status] ?? 0) + 1; return result; }, {});
-  const customerStatuses = customers.reduce<Record<string, number>>((result, item) => { result[item.status] = (result[item.status] ?? 0) + 1; return result; }, {});
-  const completedInRange = tasks.filter((task) => task.completed_at && (!start || new Date(task.completed_at) >= start) && (!end || new Date(task.completed_at) <= end)).length;
+  const { data, error } = await supabase.rpc("get_analytics", {
+    p_org_id: context.organization.id,
+    p_from: fromDate,
+    p_to: toDate,
+  });
+
+  if (error || !data || data.length === 0) {
+    if (error) {
+      console.error("Failed to fetch analytics:", {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+      });
+    }
+    return null;
+  }
+
+  const result = data[0];
   return {
-    customerMetrics: { total: activeCustomers.count! + inactiveCustomers.count! + leadCustomers.count!, active: activeCustomers.count ?? 0, inactive: inactiveCustomers.count ?? 0, leads: leadCustomers.count ?? 0, created: customers.length },
-    taskMetrics: { total: tasks.length, open: openTasks.count ?? 0, completed: completedTasks.count ?? 0, overdue: overdueTasks.count ?? 0, completedInRange },
-    activityMetrics: { total: activities.length, created: activities.length, byType: activityTypes },
-    performance: { completionRate: tasks.length ? Math.round((completedInRange / tasks.length) * 100) : 0, overdueRate: tasks.length ? Math.round(((overdueTasks.count ?? 0) / tasks.length) * 100) : 0 },
-    series: { customersCreated: createdByDay(customers), tasksCreated: createdByDay(tasks), activitiesCreated: createdByDay(activities), taskStatuses, customerStatuses },
+    customerMetrics: {
+      total: result.total_customers,
+      active: result.active_customers,
+      inactive: result.inactive_customers,
+      leads: result.lead_customers,
+      created: result.customers_created,
+    },
+    taskMetrics: {
+      total: result.total_tasks,
+      open: result.open_tasks,
+      completed: result.completed_tasks,
+      overdue: result.overdue_tasks,
+      completedInRange: result.completed_in_range,
+    },
+    activityMetrics: {
+      total: result.total_activities,
+      created: result.activities_created,
+      byType: result.activity_types,
+    },
+    performance: {
+      completionRate: result.completion_rate,
+      overdueRate: result.overdue_rate,
+    },
+    series: {
+      customersCreated: result.customers_created_series,
+      tasksCreated: result.tasks_created_series,
+      activitiesCreated: result.activities_created_series,
+      taskStatuses: result.task_statuses,
+      customerStatuses: result.customer_statuses,
+      activityTypes: result.activity_types,
+    },
   };
 }
 

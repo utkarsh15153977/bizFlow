@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth/actions";
-import type { Tables } from "@/types/database.types";
+import type { Tables, CustomerStatus, LeadStage, TaskStatus, TaskPriority, TaskType } from "@/types/database.types";
 import { isOrgAdminOrOwner } from "@/lib/auth/roles";
 import { createNotification } from "@/lib/notification-actions";
 
@@ -24,6 +24,52 @@ const ORGANIZATION_TIMEZONES = [
   "America/Denver",
   "America/Los_Angeles",
 ] as const;
+
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 50;
+
+export type PaginationParams = {
+  page?: number;
+  pageSize?: number;
+};
+
+export type CustomerFilters = PaginationParams & {
+  search?: string;
+  status?: "all" | CustomerStatus;
+  sortBy?: "recent" | "name" | "status";
+};
+
+export type LeadFilters = PaginationParams & {
+  search?: string;
+  stage?: "all" | LeadStage;
+  sortBy?: "recent" | "name" | "stage";
+};
+
+export type TaskFilters = PaginationParams & {
+  search?: string;
+  status?: "all" | TaskStatus;
+  priority?: "all" | TaskPriority;
+  type?: "all" | TaskType;
+  assignment?: "all" | "mine" | "others" | "today" | "overdue" | "upcoming";
+  customerId?: "all" | string;
+  assigneeId?: "all" | string;
+};
+
+export type PaginatedResult<T> = {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+function sanitizeSearchTerm(search?: string): string | null {
+  const trimmed = search?.trim().toLowerCase();
+  if (!trimmed) return null;
+  // Remove characters that could break PostgREST filter syntax
+  const sanitized = trimmed.replace(/[,()"\\]/g, "").slice(0, 64).trim();
+  return sanitized || null;
+}
 
 async function getOrgId(): Promise<string | null> {
   const context = await getCurrentUserContext();
@@ -88,23 +134,43 @@ function revalidateCrmPaths(path: "/customers" | "/leads" | "/tasks" | "/setting
 
 // ─── CUSTOMERS ───────────────────────────────────────────────────────────────
 
-export async function getCustomers(): Promise<Tables<"customers">[]> {
-  const orgId = await getOrgId();
-  if (!orgId) return [];
+export async function getCustomers(filters: CustomerFilters = {}): Promise<PaginatedResult<Tables<"customers">>> {
+  const { orgId } = await getAuthorizedOrgContext();
+  if (!orgId) return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 0 };
 
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("customers")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("organization_id", orgId)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("Failed to fetch customers:", error);
-    return [];
+  if (filters.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
   }
 
-  return data ?? [];
+  const searchTerm = sanitizeSearchTerm(filters.search);
+  if (searchTerm) {
+    const pattern = `%${searchTerm}%`;
+    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},company.ilike.${pattern}`);
+  }
+
+  const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
+  if (error) {
+    console.error("Failed to fetch customers:", error);
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
+
+  const total = count ?? 0;
+  return {
+    data: data ?? [],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export async function getCustomerById(id: string): Promise<Tables<"customers"> | null> {
@@ -191,19 +257,22 @@ export async function createCustomerActivity(
 
   if (!customer) return { error: "Customer not found." };
 
-  const { error } = await supabase.from("activities").insert({
-    organization_id: orgId,
-    user_id: userId,
-    entity_type: "customer",
-    entity_id: customerId,
-    title,
-    detail,
-  });
+  const { data: createdActivity, error } = await supabase
+    .from("activities")
+    .insert({
+      organization_id: orgId,
+      user_id: userId,
+      entity_type: "customer",
+      entity_id: customerId,
+      title,
+      detail,
+    })
+    .select("id")
+    .single();
 
-  if (error) return { error: error.message || "Failed to add activity." };
+  if (error || !createdActivity) return { error: error?.message || "Failed to add activity." };
 
-  const context = await getCurrentUserContext();
-  if (customer.created_by && context.user && context.user.id !== customer.created_by) {
+  if (customer.created_by && userId !== customer.created_by) {
     await createNotification({
       recipientId: customer.created_by,
       title: "Customer activity added",
@@ -211,7 +280,7 @@ export async function createCustomerActivity(
       type: "CUSTOMER_ACTIVITY",
       entityType: "customer",
       entityId: customerId,
-      dedupeKey: `customer-activity-${customerId}-${Date.now()}`,
+      dedupeKey: `customer-activity:${orgId}:${customer.created_by}:${createdActivity.id}`,
     });
   }
 
@@ -262,7 +331,7 @@ export async function createCustomer(
 
   if (error) {
     console.error("Failed to create customer:", error);
-    return { error: error.message || "Failed to create customer." };
+    return { error: "Failed to create customer. Please try again." };
   }
 
   revalidateCrmPaths("/customers");
@@ -275,8 +344,8 @@ export async function updateCustomer(
 ): Promise<ActionResult> {
   const formData = resolveActionFormData(_prevState, formDataOrUndefined);
   if (!(formData instanceof FormData)) return formData;
-  const orgId = await getOrgId();
-  if (!orgId) return { error: "No workspace found." };
+  const { orgId, userId } = await getAuthorizedOrgContext();
+  if (!orgId || !userId) return { error: "No workspace found." };
 
   const id = formData.get("id")?.toString().trim();
   const name = formData.get("name")?.toString().trim();
@@ -314,17 +383,16 @@ export async function updateCustomer(
 
   if (error) {
     console.error("Failed to update customer:", error);
-    return { error: error.message || "Failed to update customer." };
+    return { error: "Failed to update customer. Please try again." };
   }
 
-  const context = await getCurrentUserContext();
   const { data: customer } = await supabase
     .from("customers")
     .select("name, created_by")
     .eq("id", id)
     .eq("organization_id", orgId)
     .single();
-  if (customer?.created_by && customer.created_by !== context.user?.id) {
+  if (customer?.created_by && customer.created_by !== userId) {
     await createNotification({
       recipientId: customer.created_by,
       title: "Customer updated",
@@ -332,7 +400,7 @@ export async function updateCustomer(
       type: "CUSTOMER_UPDATED",
       entityType: "customer",
       entityId: id,
-      dedupeKey: `customer-updated-${id}-${Date.now()}`,
+      dedupeKey: `customer-updated:${orgId}:${customer.created_by}:${id}`,
     });
   }
 
@@ -362,7 +430,7 @@ export async function deleteCustomer(
 
   if (error) {
     console.error("Failed to delete customer:", error);
-    return { error: error.message || "Failed to delete customer." };
+    return { error: "Failed to delete customer. Please try again." };
   }
 
   revalidateCrmPaths("/customers");
@@ -371,23 +439,43 @@ export async function deleteCustomer(
 
 // ─── LEADS ───────────────────────────────────────────────────────────────────
 
-export async function getLeads(): Promise<Tables<"leads">[]> {
-  const orgId = await getOrgId();
-  if (!orgId) return [];
+export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResult<Tables<"leads">>> {
+  const { orgId } = await getAuthorizedOrgContext();
+  if (!orgId) return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 0 };
 
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("leads")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("organization_id", orgId)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("Failed to fetch leads:", error);
-    return [];
+  if (filters.stage && filters.stage !== "all") {
+    query = query.eq("stage", filters.stage);
   }
 
-  return data ?? [];
+  const searchTerm = sanitizeSearchTerm(filters.search);
+  if (searchTerm) {
+    const pattern = `%${searchTerm}%`;
+    query = query.or(`name.ilike.${pattern},email.ilike.${pattern},company.ilike.${pattern},source.ilike.${pattern}`);
+  }
+
+  const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
+  if (error) {
+    console.error("Failed to fetch leads:", error);
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
+
+  const total = count ?? 0;
+  return {
+    data: data ?? [],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export async function createLead(
@@ -430,7 +518,7 @@ export async function createLead(
 
   if (error) {
     console.error("Failed to create lead:", error);
-    return { error: error.message || "Failed to create lead." };
+    return { error: "Failed to create lead. Please try again." };
   }
 
   revalidateCrmPaths("/leads");
@@ -482,7 +570,7 @@ export async function updateLead(
 
   if (error) {
     console.error("Failed to update lead:", error);
-    return { error: error.message || "Failed to update lead." };
+    return { error: "Failed to update lead. Please try again." };
   }
 
   revalidateCrmPaths("/leads");
@@ -511,7 +599,7 @@ export async function deleteLead(
 
   if (error) {
     console.error("Failed to delete lead:", error);
-    return { error: error.message || "Failed to delete lead." };
+    return { error: "Failed to delete lead. Please try again." };
   }
 
   revalidateCrmPaths("/leads");
@@ -520,24 +608,82 @@ export async function deleteLead(
 
 // ─── TASKS ───────────────────────────────────────────────────────────────────
 
-export async function getTasks(): Promise<Tables<"tasks">[]> {
-  const orgId = await getOrgId();
-  if (!orgId) return [];
+export async function getTasks(filters: TaskFilters = {}): Promise<PaginatedResult<Tables<"tasks">>> {
+  const { orgId, userId } = await getAuthorizedOrgContext();
+  if (!orgId || !userId) return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 0 };
 
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("tasks")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("organization_id", orgId)
     .order("due_date", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("Failed to fetch tasks:", error);
-    return [];
+  if (filters.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
+  }
+  if (filters.priority && filters.priority !== "all") {
+    query = query.eq("priority", filters.priority);
+  }
+  if (filters.type && filters.type !== "all") {
+    query = query.eq("task_type", filters.type);
+  }
+  if (filters.customerId && filters.customerId !== "all") {
+    query = query.eq("customer_id", filters.customerId);
+  }
+  if (filters.assigneeId && filters.assigneeId !== "all") {
+    query = query.eq("assigned_to", filters.assigneeId);
+  }
+  if (filters.assignment && filters.assignment !== "all") {
+    const now = new Date().toISOString();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+    const endOfDayISO = endOfDay.toISOString();
+
+    switch (filters.assignment) {
+      case "mine":
+        query = query.eq("assigned_to", userId);
+        break;
+      case "others":
+        query = query.neq("assigned_to", userId);
+        break;
+      case "today":
+        query = query.gte("due_date", now).lt("due_date", endOfDayISO);
+        break;
+      case "overdue":
+        query = query.lt("due_date", now);
+        break;
+      case "upcoming":
+        query = query.gte("due_date", endOfDayISO);
+        break;
+    }
   }
 
-  return data ?? [];
+  const searchTerm = sanitizeSearchTerm(filters.search);
+  if (searchTerm) {
+    const pattern = `%${searchTerm}%`;
+    query = query.or(`title.ilike.${pattern},description.ilike.${pattern}`);
+  }
+
+  const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
+  if (error) {
+    console.error("Failed to fetch tasks:", error);
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
+
+  const total = count ?? 0;
+  return {
+    data: data ?? [],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export async function getTask(id: string): Promise<Tables<"tasks"> | null> {
@@ -642,7 +788,7 @@ export async function createTask(
 
   if (error) {
     console.error("Failed to create task:", error);
-    return { error: error.message || "Failed to create task." };
+    return { error: "Failed to create task. Please try again." };
   }
 
   if (customerId) {
@@ -664,7 +810,7 @@ export async function createTask(
       type: "TASK_ASSIGNED",
       entityType: "task",
       entityId: createdTask.id,
-      dedupeKey: `task-assigned-${createdTask.id}-${assignedTo}`,
+      dedupeKey: `task-assigned:${orgId}:${assignedTo}:${createdTask.id}`,
     });
   }
 
@@ -678,8 +824,8 @@ export async function updateTask(
 ): Promise<ActionResult> {
   const formData = resolveActionFormData(_prevState, formDataOrUndefined);
   if (!(formData instanceof FormData)) return formData;
-  const orgId = await getOrgId();
-  if (!orgId) return { error: "No workspace found." };
+  const { orgId, userId } = await getAuthorizedOrgContext();
+  if (!orgId || !userId) return { error: "No workspace found." };
 
   const id = formData.get("id")?.toString().trim();
   const title = formData.get("title")?.toString().trim();
@@ -733,19 +879,18 @@ export async function updateTask(
 
   if (error) {
     console.error("Failed to update task:", error);
-    return { error: error.message || "Failed to update task." };
+    return { error: "Failed to update task. Please try again." };
   }
 
   if (assignedTo && assignedTo !== previousTask?.assigned_to) {
-    const context = await getCurrentUserContext();
     await createNotification({
       recipientId: assignedTo,
-      title: assignedTo === context.user?.id ? "Task assigned to you" : "Task assigned",
+      title: assignedTo === userId ? "Task assigned to you" : "Task assigned",
       message: title!,
       type: "TASK_ASSIGNED",
       entityType: "task",
       entityId: id,
-      dedupeKey: `task-assigned-${id}-${assignedTo}`,
+      dedupeKey: `task-assigned:${orgId}:${assignedTo}:${id}`,
     });
   }
 
@@ -757,8 +902,8 @@ export async function updateTaskStatus(
   id: string,
   status: string
 ): Promise<ActionResult> {
-  const orgId = await getOrgId();
-  if (!orgId) return { error: "No workspace found." };
+  const { orgId, userId } = await getAuthorizedOrgContext();
+  if (!orgId || !userId) return { error: "No workspace found." };
   if (!id) return { error: "Task ID is required." };
   const validatedStatus = validateEnum(status, TASK_STATUSES, "Status");
   if (typeof validatedStatus !== "string") return validatedStatus;
@@ -781,24 +926,24 @@ export async function updateTaskStatus(
 
   if (error) {
     console.error("Failed to update task status:", error);
-    return { error: error.message || "Failed to update task status." };
+    return { error: "Failed to update task status. Please try again." };
   }
 
   if (validatedStatus === "completed") {
     if (previousTask?.customer_id) {
-      const context = await getCurrentUserContext();
       await supabase.from("activities").insert({
         organization_id: orgId,
-        user_id: context.user?.id ?? null,
+        user_id: userId,
         entity_type: "customer",
         entity_id: previousTask.customer_id,
         title: "Task completed",
         detail: previousTask.title,
       });
     }
-    const context = await getCurrentUserContext();
+    // Per-recipient dedupe keys: a shared key would let ON CONFLICT DO NOTHING
+    // silently drop the second recipient's notification.
     for (const recipientId of new Set([previousTask?.assigned_to, previousTask?.created_by])) {
-      if (recipientId && recipientId !== context.user?.id) {
+      if (recipientId && recipientId !== userId) {
         await createNotification({
           recipientId,
           title: "Task completed",
@@ -806,7 +951,7 @@ export async function updateTaskStatus(
           type: "TASK_COMPLETED",
           entityType: "task",
           entityId: id,
-          dedupeKey: `task-completed-${id}-${previousTask?.assigned_to || "none"}-${previousTask?.created_by || "none"}`,
+          dedupeKey: `task-completed:${orgId}:${recipientId}:${id}`,
         });
       }
     }
@@ -824,30 +969,51 @@ export async function reopenTask(id: string): Promise<ActionResult> {
   return updateTaskStatus(id, "pending");
 }
 
+// Internal function to fetch all tasks without pagination for internal use
+async function getAllTasks(): Promise<Tables<"tasks">[]> {
+  const orgId = await getOrgId();
+  if (!orgId) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("organization_id", orgId)
+    .order("due_date", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch tasks:", error);
+    return [];
+  }
+
+  return data ?? [];
+}
+
 export async function getTasksByStatus(status: string): Promise<Tables<"tasks">[]> {
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   return tasks.filter((task) => task.status === status);
 }
 
 export async function getTasksByCustomer(customerId: string): Promise<Tables<"tasks">[]> {
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   return tasks.filter((task) => task.customer_id === customerId);
 }
 
 export async function getTasksByAssignee(assignedTo: string): Promise<Tables<"tasks">[]> {
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   return tasks.filter((task) => task.assigned_to === assignedTo);
 }
 
 export async function getUpcomingTasks(): Promise<Tables<"tasks">[]> {
   const now = Date.now();
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   return tasks.filter((task) => task.due_date && new Date(task.due_date).getTime() >= now && task.status !== "completed" && task.status !== "cancelled");
 }
 
 export async function getOverdueTasks(): Promise<Tables<"tasks">[]> {
   const now = Date.now();
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   return tasks.filter((task) => task.due_date && new Date(task.due_date).getTime() < now && task.status !== "completed" && task.status !== "cancelled");
 }
 
@@ -857,7 +1023,7 @@ export async function getTaskDashboardMetrics() {
     return { total: 0, myOpen: 0, dueToday: 0, overdue: 0, completedThisWeek: 0 };
   }
 
-  const tasks = await getTasks();
+  const tasks = await getAllTasks();
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const weekStart = new Date(now);
@@ -894,7 +1060,7 @@ export async function deleteTask(
 
   if (error) {
     console.error("Failed to delete task:", error);
-    return { error: error.message || "Failed to delete task." };
+    return { error: "Failed to delete task. Please try again." };
   }
 
   revalidateCrmPaths("/tasks");
@@ -904,7 +1070,7 @@ export async function deleteTask(
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 export async function getDashboardStats() {
-  const orgId = await getOrgId();
+  const { orgId } = await getAuthorizedOrgContext();
   if (!orgId) {
     return {
       totalCustomers: 0,
@@ -917,36 +1083,35 @@ export async function getDashboardStats() {
   }
 
   const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_dashboard_stats", { p_org_id: orgId });
 
-  const [customersRes, activeCustomersRes, newCustomersRes, leadsRes, tasksRes] = await Promise.all([
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", orgId),
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", orgId).eq("status", "active"),
-    supabase.from("customers").select("id", { count: "exact", head: true }).eq("organization_id", orgId).gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
-    supabase
-      .from("leads")
-      .select("estimated_value", { count: "exact" })
-      .eq("organization_id", orgId)
-      .neq("stage", "won")
-      .neq("stage", "lost"),
-    supabase
-      .from("tasks")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", orgId)
-      .eq("status", "pending"),
-  ]);
+  if (error || !data || data.length === 0) {
+    if (error) {
+      console.error("Failed to fetch dashboard stats:", {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+      });
+    }
+    return {
+      totalCustomers: 0,
+      activeCustomers: 0,
+      newCustomers: 0,
+      activeLeads: 0,
+      pendingTasks: 0,
+      pipelineValue: 0,
+    };
+  }
 
-  const pipelineValue = leadsRes.data?.reduce(
-    (sum, lead) => sum + (lead.estimated_value || 0),
-    0
-  ) || 0;
-
+  const result = data[0];
   return {
-    totalCustomers: customersRes.count ?? 0,
-    activeCustomers: activeCustomersRes.count ?? 0,
-    newCustomers: newCustomersRes.count ?? 0,
-    activeLeads: leadsRes.count ?? 0,
-    pendingTasks: tasksRes.count ?? 0,
-    pipelineValue,
+    totalCustomers: result.total_customers,
+    activeCustomers: result.active_customers,
+    newCustomers: result.new_customers_30d,
+    activeLeads: result.active_leads,
+    pendingTasks: result.pending_tasks,
+    pipelineValue: result.pipeline_value,
   };
 }
 
@@ -966,24 +1131,24 @@ export async function getRecentCustomers(): Promise<Tables<"customers">[]> {
   return data ?? [];
 }
 
-export async function getLeadPipeline() {
-  const orgId = await getOrgId();
+export async function getLeadPipeline(): Promise<Array<{ stage: string; count: number }>> {
+  const { orgId } = await getAuthorizedOrgContext();
   if (!orgId) return [];
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("stage")
-    .eq("organization_id", orgId);
+  const { data, error } = await supabase.rpc("get_lead_pipeline", { p_org_id: orgId });
 
-  if (error || !data) return [];
-
-  const counts: Record<string, number> = {};
-  for (const lead of data) {
-    counts[lead.stage] = (counts[lead.stage] || 0) + 1;
+  if (error) {
+    console.error("Failed to fetch lead pipeline:", {
+      message: error?.message,
+      code: error?.code,
+      details: error?.details,
+      hint: error?.hint,
+    });
+    return [];
   }
 
-  return Object.entries(counts).map(([stage, count]) => ({ stage, count }));
+  return (data ?? []).map((row) => ({ stage: row.stage, count: row.count }));
 }
 
 export async function getRecentActivities() {
@@ -1034,7 +1199,7 @@ export async function updateOrganizationSettings(formData: FormData): Promise<Ac
 
   if (error) {
     console.error("Failed to update organization:", error);
-    return { error: error.message || "Failed to update settings." };
+    return { error: "Failed to update settings. Please try again." };
   }
 
   revalidateCrmPaths("/settings");
@@ -1068,7 +1233,7 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
 
   if (error) {
     console.error("Failed to update profile:", error);
-    return { error: error.message || "Failed to update profile." };
+    return { error: "Failed to update profile. Please try again." };
   }
 
   revalidateCrmPaths("/settings");

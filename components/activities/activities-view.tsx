@@ -29,9 +29,11 @@ export function ActivitiesView({ rows, total, customers, users, filters }: { row
   const page = Number(filters.page ?? "1");
   const pageSize = 20;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const updateFilters = (values: Record<string, string>) => {
+  const updateFilters = (values: Record<string, string>, options?: { keepPage?: boolean }) => {
     const params = new URLSearchParams();
-    Object.entries({ ...filters, ...values, page: "1" }).forEach(([key, value]) => { if (value) params.set(key, value); });
+    const merged: Record<string, string> = { ...filters, ...values };
+    if (!options?.keepPage) merged.page = "1";
+    Object.entries(merged).forEach(([key, value]) => { if (value) params.set(key, value); });
     startTransition(() => router.push(`/activities?${params.toString()}`));
   };
   const columns: Column<ActivityRecord>[] = [
@@ -61,7 +63,7 @@ export function ActivitiesView({ rows, total, customers, users, filters }: { row
         <Button variant="secondary" disabled={exporting} onClick={exportActivities}>{exporting ? "Exporting..." : "Export CSV"}</Button>
       </div>
       {rows.length === 0 ? <EmptyState title="No activities" description="Activity recorded across your workspace will appear here." /> : <><div className="hidden md:block"><DataTable caption="Activities" columns={columns} rows={rows} getRowId={(row) => row.id} emptyTitle="No activities" emptyDescription="No activities match these filters." /></div><div className="space-y-3 md:hidden">{rows.map((row) => <Link key={row.id} href={`/activities/${row.id}`} className="block rounded-xl border border-border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><p className="font-medium">{row.title}</p><Badge tone="accent">{row.entity_type}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{row.customerName || row.creatorName || "System"}</p><time className="mt-2 block text-xs text-muted-foreground">{new Date(row.created_at).toLocaleString()}</time></Link>)}</div></>}
-      {total > pageSize && <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Page {page} of {pageCount} ({total} total)</span><div className="flex gap-2"><Button variant="secondary" disabled={page <= 1 || pending} onClick={() => updateFilters({ page: String(page - 1) })}>Previous</Button><Button variant="secondary" disabled={page >= pageCount || pending} onClick={() => updateFilters({ page: String(page + 1) })}>Next</Button></div></div>}
+      {total > pageSize && <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Page {page} of {pageCount} ({total} total)</span><div className="flex gap-2"><Button variant="secondary" disabled={page <= 1 || pending} onClick={() => updateFilters({ page: String(page - 1) }, { keepPage: true })}>Previous</Button><Button variant="secondary" disabled={page >= pageCount || pending} onClick={() => updateFilters({ page: String(page + 1) }, { keepPage: true })}>Next</Button></div></div>}
     </div>
   );
 }

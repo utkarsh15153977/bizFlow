@@ -163,19 +163,18 @@ export async function getOrganizationInvitationPreview(token: string) {
   const context = await getCurrentUserContext();
   if (!context.user || !token) return null;
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("organization_invitations")
-    .select("email, role, status, expires_at, organizations(name)")
-    .eq("token_hash", hashToken(token))
-    .single();
-  if (!data) return null;
-  const organization = data.organizations as unknown as { name: string } | null;
+  // Direct reads are blocked by RLS for non-members; the security-definer RPC
+  // returns only the minimum preview fields for the exact token hash.
+  const { data, error } = await supabase
+    .rpc("preview_organization_invitation", { invitation_token_hash: hashToken(token) })
+    .maybeSingle();
+  if (error || !data) return null;
   return {
     email: data.email,
     role: data.role,
     status: data.status,
     expiresAt: data.expires_at,
-    organizationName: organization?.name || "BizFlow workspace",
+    organizationName: data.organization_name || "BizFlow workspace",
   };
 }
 
@@ -188,7 +187,7 @@ export async function changeOrganizationMemberRole(memberId: string, role: UserR
   const { error } = await supabase.from("organization_members").update({ role }).eq("id", memberId).eq("organization_id", context.organization.id);
   if (error) return { error: "Unable to change member role." };
   await recordOrganizationActivity(context.organization.id, context.user.id, "Member role changed", `Member role changed to ${role}.`);
-  if (member.user_id !== context.user.id) await createNotification({ recipientId: member.user_id, title: "Your role changed", message: `Your organization role is now ${role}.`, type: "SYSTEM", dedupeKey: `role-${memberId}-${role}-${Date.now()}` });
+  if (member.user_id !== context.user.id) await createNotification({ recipientId: member.user_id, title: "Your role changed", message: `Your organization role is now ${role}.`, type: "SYSTEM", dedupeKey: `role-changed:${context.organization.id}:${member.user_id}:${memberId}:${role}` });
   revalidatePath("/team");
   return { success: true };
 }
@@ -203,7 +202,7 @@ export async function removeOrganizationMember(memberId: string): Promise<Action
   const { error } = await supabase.from("organization_members").delete().eq("id", memberId).eq("organization_id", context.organization.id);
   if (error) return { error: "Unable to remove member." };
   await recordOrganizationActivity(context.organization.id, context.user.id, "Member removed", "A team member was removed from the organization.");
-  await createNotification({ recipientId: member.user_id, title: "You were removed", message: "Your organization membership was removed.", type: "SYSTEM", dedupeKey: `removed-${memberId}-${Date.now()}` });
+  await createNotification({ recipientId: member.user_id, title: "You were removed", message: "Your organization membership was removed.", type: "SYSTEM", dedupeKey: `member-removed:${context.organization.id}:${member.user_id}:${memberId}` });
   revalidatePath("/team");
   return { success: true };
 }

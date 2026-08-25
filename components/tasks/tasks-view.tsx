@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useActionState } from "react";
+import { useEffect, useMemo, useRef, useState, useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { InboxIcon } from "@/components/icons";
 import { Dialog } from "@/components/ui/dialog";
 import type { Tables } from "@/types/database.types";
 import { completeTask, createTask, updateTask, deleteTask } from "@/lib/crm-actions";
+import type { TaskFilters } from "@/lib/crm-actions";
 
 type Task = Tables<"tasks">;
 type Customer = Tables<"customers">;
@@ -37,91 +38,6 @@ function formatDueDate(dateString: string, includeYear = false): string {
     timeZone: "UTC",
   });
 }
-
-const columns: Column<Task>[] = [
-  {
-    id: "title",
-    header: "Task",
-    cell: (row) => (
-      <div>
-        <Link href={`/tasks/${row.id}`} className="font-medium text-foreground hover:text-accent hover:underline">{row.title}</Link>
-        <p className="text-muted-foreground md:hidden">
-          {row.due_date
-            ? formatDueDate(row.due_date)
-            : "No due date"}
-          {" · "}
-          {row.priority}
-        </p>
-      </div>
-    ),
-  },
-  {
-    id: "owner",
-    header: "Owner",
-    hideOnMobile: true,
-    cell: (row) => (row.assigned_to ? "Assigned" : "Unassigned"),
-  },
-  {
-    id: "type",
-    header: "Type",
-    hideOnMobile: true,
-    cell: (row) => row.task_type.replace("_", " "),
-  },
-  {
-    id: "customer",
-    header: "Customer",
-    hideOnMobile: true,
-    cell: (row) => row.customer_id ? "Linked customer" : "—",
-  },
-  {
-    id: "due",
-    header: "Due",
-    hideOnMobile: true,
-    cell: (row) =>
-      row.due_date
-        ? formatDueDate(row.due_date, true)
-        : "—",
-  },
-  {
-    id: "priority",
-    header: "Priority",
-    hideOnMobile: true,
-    cell: (row) => <Badge tone={priorityTone[row.priority] ?? "neutral"}>{row.priority}</Badge>,
-  },
-  {
-    id: "status",
-    header: "Status",
-    cell: (row) => <Badge tone={statusTone[row.status] ?? "neutral"}>{row.status.replace("_", " ")}</Badge>,
-  },
-  {
-    id: "actions",
-    header: "",
-    hideOnMobile: true,
-    cell: (row) => (
-      <div className="flex items-center gap-2">
-        {row.status !== "completed" && (
-          <Button variant="ghost" className="h-8 px-2 text-xs text-success" onClick={() => window.dispatchEvent(new CustomEvent("complete-task", { detail: row.id }))}>
-            Complete
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          className="h-8 px-2 text-xs"
-          onClick={() => window.dispatchEvent(new CustomEvent("edit-task", { detail: row }))}
-        >
-          Edit
-        </Button>
-        <Button
-          variant="ghost"
-          className="h-8 px-2 text-xs text-danger hover:text-danger"
-          onClick={() => window.dispatchEvent(new CustomEvent("delete-task", { detail: row }))}
-        >
-          Delete
-        </Button>
-      </div>
-    ),
-  },
-];
 
 type TaskFormProps = {
   task?: Task | null;
@@ -180,19 +96,13 @@ function TaskForm({ task, customers, assignees, initialCustomerId, onClose }: Ta
         <div className="space-y-1.5">
           <label htmlFor="priority" className="block text-sm font-medium">Priority</label>
           <select id="priority" name="priority" defaultValue={task?.priority ?? "medium"} className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm">
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
+            <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
           </select>
         </div>
         <div className="space-y-1.5">
           <label htmlFor="status" className="block text-sm font-medium">Status</label>
           <select id="status" name="status" defaultValue={task?.status ?? "pending"} className="w-full rounded-lg border border-border bg-background px-3.5 py-2 text-sm">
-            <option value="pending">Pending</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option>
           </select>
         </div>
       </div>
@@ -272,37 +182,139 @@ function DeleteConfirm({ task, onClose }: { task: Task; onClose: () => void }) {
   );
 }
 
-export function TasksView({ tasks, customers, assignees, currentUserId, initialCustomerId }: { tasks: Task[]; customers: Customer[]; assignees: Assignee[]; currentUserId?: string; initialCustomerId?: string }) {
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [assignmentFilter, setAssignmentFilter] = useState("all");
-  const [customerFilter, setCustomerFilter] = useState(initialCustomerId ?? "all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
+export function TasksView({ tasks, customers, assignees, initialCustomerId, filters, total, page, pageSize, totalPages }: { tasks: Task[]; customers: Customer[]; assignees: Assignee[]; initialCustomerId?: string; filters: TaskFilters; total: number; page: number; pageSize: number; totalPages: number }) {
+  const router = useRouter();
+  const [query, setQuery] = useState(filters.search ?? "");
+  const [statusFilter] = useState(filters.status ?? "all");
+  const [priorityFilter] = useState(filters.priority ?? "all");
+  const [typeFilter] = useState(filters.type ?? "all");
+  const [assignmentFilter] = useState(filters.assignment ?? "all");
+  const [customerFilter] = useState(filters.customerId ?? "all");
+  const [assigneeFilter] = useState(filters.assigneeId ?? "all");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [deleteTaskState, setDeleteTaskState] = useState<Task | null>(null);
-  const [statusPending, setStatusPending] = useState(false);
-  const [page, setPage] = useState(1);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const completeHandlerRef = useRef<(taskId: string) => void>(() => {});
   const customerNames = useMemo(() => new Map(customers.map((customer) => [customer.id, customer.name])), [customers]);
-  const filteredTasks = useMemo(() => tasks.filter((task) => {
-    const search = query.trim().toLowerCase();
-    const matchesSearch = !search || [task.title, task.description ?? "", customerNames.get(task.customer_id ?? "") ?? ""].join(" ").toLowerCase().includes(search);
-    const dueTime = task.due_date ? new Date(task.due_date).getTime() : null;
-    const now = Date.now();
-    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay); endOfDay.setDate(endOfDay.getDate() + 1);
-    const assignmentMatches = ["all", "today", "overdue", "upcoming"].includes(assignmentFilter) || (assignmentFilter === "mine" && task.assigned_to === currentUserId) || (assignmentFilter === "others" && task.assigned_to !== currentUserId);
-    const dateMatches = assignmentFilter !== "overdue" && assignmentFilter !== "today" && assignmentFilter !== "upcoming" || (assignmentFilter === "overdue" && dueTime !== null && dueTime < now && task.status !== "completed") || (assignmentFilter === "today" && dueTime !== null && dueTime >= startOfDay.getTime() && dueTime < endOfDay.getTime()) || (assignmentFilter === "upcoming" && dueTime !== null && dueTime >= endOfDay.getTime() && task.status !== "completed");
-    return matchesSearch && assignmentMatches && dateMatches && (statusFilter === "all" || task.status === statusFilter) && (priorityFilter === "all" || task.priority === priorityFilter) && (typeFilter === "all" || task.task_type === typeFilter) && (customerFilter === "all" || task.customer_id === customerFilter) && (assigneeFilter === "all" || task.assigned_to === assigneeFilter);
-  }), [assigneeFilter, assignmentFilter, customerFilter, customerNames, currentUserId, priorityFilter, query, statusFilter, tasks, typeFilter]);
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
-  const visibleTasks = filteredTasks.slice((page - 1) * pageSize, page * pageSize);
+
+  const columns = useMemo<Column<Task>[]>(() => [
+    {
+      id: "title",
+      header: "Task",
+      cell: (row) => (
+        <div>
+          <Link href={`/tasks/${row.id}`} className="font-medium text-foreground hover:text-accent hover:underline">{row.title}</Link>
+          <p className="text-muted-foreground md:hidden">
+            {row.due_date
+              ? formatDueDate(row.due_date)
+              : "No due date"}
+            {" · "}
+            {row.priority}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "owner",
+      header: "Owner",
+      hideOnMobile: true,
+      cell: (row) => (row.assigned_to ? "Assigned" : "Unassigned"),
+    },
+    {
+      id: "type",
+      header: "Type",
+      hideOnMobile: true,
+      cell: (row) => row.task_type.replace("_", " "),
+    },
+    {
+      id: "customer",
+      header: "Customer",
+      hideOnMobile: true,
+      cell: (row) => row.customer_id ? customerNames.get(row.customer_id) ?? "Linked customer" : "—",
+    },
+    {
+      id: "due",
+      header: "Due",
+      hideOnMobile: true,
+      cell: (row) =>
+        row.due_date
+          ? formatDueDate(row.due_date, true)
+          : "—",
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      hideOnMobile: true,
+      cell: (row) => <Badge tone={priorityTone[row.priority] ?? "neutral"}>{row.priority}</Badge>,
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (row) => <Badge tone={statusTone[row.status] ?? "neutral"}>{row.status.replace("_", " ")}</Badge>,
+    },
+    {
+      id: "actions",
+      header: "",
+      hideOnMobile: true,
+      cell: (row) => (
+        <div className="flex items-center gap-2">
+          {row.status !== "completed" && (
+            <Button
+              variant="ghost"
+              className="h-8 px-2 text-xs text-success"
+              disabled={completingTaskId !== null}
+              isLoading={completingTaskId === row.id}
+              loadingText="Completing..."
+              onClick={() => window.dispatchEvent(new CustomEvent("complete-task", { detail: row.id }))}
+            >
+              Complete
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            className="h-8 px-2 text-xs"
+            onClick={() => window.dispatchEvent(new CustomEvent("edit-task", { detail: row }))}
+          >
+            Edit
+          </Button>
+          <Button
+            variant="ghost"
+            className="h-8 px-2 text-xs text-danger hover:text-danger"
+            onClick={() => window.dispatchEvent(new CustomEvent("delete-task", { detail: row }))}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ], [completingTaskId, customerNames]);
+
+  async function runComplete(taskId: string) {
+    if (completingTaskId) return;
+    setStatusError(null);
+    setCompletingTaskId(taskId);
+    try {
+      const result = await completeTask(taskId);
+      if (result.success) {
+        router.refresh();
+      } else {
+        setStatusError("Unable to complete this task. Please try again.");
+      }
+    } catch {
+      setStatusError("Unable to complete this task. Please try again.");
+    } finally {
+      setCompletingTaskId(null);
+    }
+  }
 
   useEffect(() => {
-    setPage(1);
+    completeHandlerRef.current = runComplete;
+  });
+
+  useEffect(() => {
+    // Page is managed server-side, no need to reset local state
   }, [assigneeFilter, assignmentFilter, customerFilter, priorityFilter, query, statusFilter, typeFilter]);
 
   useEffect(() => {
@@ -319,9 +331,7 @@ export function TasksView({ tasks, customers, assignees, currentUserId, initialC
     }
 
     function handleComplete(event: Event) {
-      const taskId = (event as CustomEvent<string>).detail;
-      setStatusPending(true);
-      completeTask(taskId).then(() => window.location.reload()).finally(() => setStatusPending(false));
+      completeHandlerRef.current((event as CustomEvent<string>).detail);
     }
 
     window.addEventListener("edit-task", handleEdit);
@@ -335,37 +345,49 @@ export function TasksView({ tasks, customers, assignees, currentUserId, initialC
     };
   }, []);
 
+  function updateFilters(values: Record<string, string>) {
+    const params = new URLSearchParams();
+    const merged = { ...filters, ...values, page: String(values.page ?? filters.page ?? 1) };
+    Object.entries(merged).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
+    router.push(`/tasks?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="space-y-1.5 text-sm font-medium">Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal" /></label>
-          <label className="space-y-1.5 text-sm font-medium">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option value="pending">Todo</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
-          <label className="space-y-1.5 text-sm font-medium">Priority<select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option>low</option><option>medium</option><option>high</option><option>urgent</option></select></label>
-          <label className="space-y-1.5 text-sm font-medium">Type<select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option value="TODO">To-do</option><option value="CALL">Call</option><option value="EMAIL">Email</option><option value="MEETING">Meeting</option><option value="FOLLOW_UP">Follow-up</option></select></label>
-          <label className="space-y-1.5 text-sm font-medium">View<select value={assignmentFilter} onChange={(event) => setAssignmentFilter(event.target.value)} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All tasks</option><option value="mine">My tasks</option><option value="others">Assigned to others</option><option value="today">Due today</option><option value="overdue">Overdue</option><option value="upcoming">Upcoming</option></select></label>
-          <label className="space-y-1.5 text-sm font-medium">Customer<select value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)} className="block max-w-40 rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All customers</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
-          <label className="space-y-1.5 text-sm font-medium">Assignee<select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="block max-w-40 rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All assignees</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select></label>
+          <label className="space-y-1.5 text-sm font-medium">Search<input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") updateFilters({ search: (event.target as HTMLInputElement).value }); }} placeholder="Search tasks" className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal" /></label>
+          <label className="space-y-1.5 text-sm font-medium">Status<select value={statusFilter} onChange={(event) => updateFilters({ status: event.target.value })} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option value="pending">Todo</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+          <label className="space-y-1.5 text-sm font-medium">Priority<select value={priorityFilter} onChange={(event) => updateFilters({ priority: event.target.value })} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option>low</option><option>medium</option><option>high</option><option>urgent</option></select></label>
+          <label className="space-y-1.5 text-sm font-medium">Type<select value={typeFilter} onChange={(event) => updateFilters({ type: event.target.value })} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All</option><option value="TODO">To-do</option><option value="CALL">Call</option><option value="EMAIL">Email</option><option value="MEETING">Meeting</option><option value="FOLLOW_UP">Follow-up</option></select></label>
+          <label className="space-y-1.5 text-sm font-medium">View<select value={assignmentFilter} onChange={(event) => updateFilters({ assignment: event.target.value })} className="block rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All tasks</option><option value="mine">My tasks</option><option value="others">Assigned to others</option><option value="today">Due today</option><option value="overdue">Overdue</option><option value="upcoming">Upcoming</option></select></label>
+          <label className="space-y-1.5 text-sm font-medium">Customer<select value={customerFilter} onChange={(event) => updateFilters({ customerId: event.target.value })} className="block max-w-40 rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All customers</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+          <label className="space-y-1.5 text-sm font-medium">Assignee<select value={assigneeFilter} onChange={(event) => updateFilters({ assigneeId: event.target.value })} className="block max-w-40 rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal"><option value="all">All assignees</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select></label>
         </div>
-        <Button disabled={statusPending} onClick={() => { setEditTask(null); setCreateOpen(true); }}>Add task</Button>
+        <Button disabled={completingTaskId !== null} onClick={() => { setEditTask(null); setCreateOpen(true); }}>Add task</Button>
       </div>
+      {statusError && (
+        <div role="alert" className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+          {statusError}
+        </div>
+      )}
       <div className="hidden md:block">
         <DataTable
           caption="Tasks"
           columns={columns}
-          rows={visibleTasks}
+          rows={tasks}
           getRowId={(row) => row.id}
           emptyIcon={<InboxIcon />}
-          emptyTitle="No tasks yet"
+          emptyTitle={total === 0 ? "No tasks yet" : "No matching tasks"}
           emptyDescription="Follow-ups and team work will appear in this list."
           emptyAction={<Button onClick={() => { setEditTask(null); setCreateOpen(true); }}>Add task</Button>}
         />
       </div>
-      {filteredTasks.length > pageSize && <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Page {page} of {pageCount}</span><div className="flex gap-2"><Button variant="secondary" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</Button><Button variant="secondary" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)}>Next</Button></div></div>}
+      {total > pageSize && <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Page {page} of {totalPages} ({total} total)</span><div className="flex gap-2"><Button variant="secondary" disabled={page === 1} onClick={() => updateFilters({ page: String(page - 1) })}>Previous</Button><Button variant="secondary" disabled={page >= totalPages} onClick={() => updateFilters({ page: String(page + 1) })}>Next</Button></div></div>}
       <div className="space-y-3 md:hidden">
-        {filteredTasks.length === 0 ? (
+        {total === 0 ? (
           <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">No tasks yet. Create a task to track customer follow-ups.</div>
-        ) : visibleTasks.map((task) => (
+        ) : tasks.map((task) => (
           <Link key={task.id} href={`/tasks/${task.id}`} className="block rounded-xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3"><p className="font-medium text-foreground">{task.title}</p><Badge tone={statusTone[task.status] ?? "neutral"}>{task.status.replace("_", " ")}</Badge></div>
             <p className="mt-2 text-xs text-muted-foreground">{customerNames.get(task.customer_id ?? "") || "No customer"} · {task.task_type.replace("_", " ")}</p>

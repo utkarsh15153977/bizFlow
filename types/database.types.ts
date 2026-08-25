@@ -594,6 +594,10 @@ export interface Database {
         Args: { org_id: string };
         Returns: boolean;
       };
+      is_org_owner: {
+        Args: { org_id: string };
+        Returns: boolean;
+      };
       create_notification: {
         Args: {
           recipient_id: string;
@@ -610,6 +614,59 @@ export interface Database {
       accept_organization_invitation: {
         Args: { invitation_token_hash: string };
         Returns: string;
+      };
+      preview_organization_invitation: {
+        Args: { invitation_token_hash: string };
+        Returns: {
+          email: string;
+          role: UserRole;
+          status: InvitationStatus;
+          expires_at: string;
+          organization_name: string;
+        }[];
+      };
+      get_dashboard_stats: {
+        Args: { p_org_id: string };
+        Returns: {
+          total_customers: number;
+          active_customers: number;
+          new_customers_30d: number;
+          active_leads: number;
+          pending_tasks: number;
+          pipeline_value: number;
+        }[];
+      };
+      get_lead_pipeline: {
+        Args: { p_org_id: string };
+        Returns: {
+          stage: string;
+          count: number;
+        }[];
+      };
+      get_analytics: {
+        Args: { p_org_id: string; p_from?: string | null; p_to?: string | null };
+        Returns: {
+          total_customers: number;
+          active_customers: number;
+          inactive_customers: number;
+          lead_customers: number;
+          customers_created: number;
+          total_tasks: number;
+          open_tasks: number;
+          completed_tasks: number;
+          overdue_tasks: number;
+          completed_in_range: number;
+          total_activities: number;
+          activities_created: number;
+          completion_rate: number;
+          overdue_rate: number;
+          customers_created_series: Record<string, number>;
+          tasks_created_series: Record<string, number>;
+          activities_created_series: Record<string, number>;
+          task_statuses: Record<string, number>;
+          customer_statuses: Record<string, number>;
+          activity_types: Record<string, number>;
+        }[];
       };
     };
     Enums: {

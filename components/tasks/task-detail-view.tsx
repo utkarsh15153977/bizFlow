@@ -36,10 +36,19 @@ export function TaskDetailView({ task, customerName, assigneeName, creatorName, 
   async function changeStatus(action: (id: string) => Promise<Result>) {
     setActionState(null);
     setStatusPending(true);
-    const result = await action(task.id);
-    setStatusPending(false);
-    setActionState(result);
-    if (result.success) router.refresh();
+    // Never surface raw server/database errors for status toggles.
+    try {
+      const result = await action(task.id);
+      if (result.success) {
+        router.refresh();
+      } else {
+        setActionState({ error: "Unable to update this task. Please try again." });
+      }
+    } catch {
+      setActionState({ error: "Unable to update this task. Please try again." });
+    } finally {
+      setStatusPending(false);
+    }
   }
 
   return (

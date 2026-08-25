@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
       : "/";
   let exchangeError: string | null = null;
 
+  const redirectOrigin = getConfiguredAppOrigin() || origin;
+
   if (tokenHash && otpType) {
     const supabase = await createClient();
     const { error } = await supabase.auth.verifyOtp({
@@ -40,7 +42,6 @@ export async function GET(request: NextRequest) {
       type: otpType,
     });
     if (!error) {
-      const redirectOrigin = getConfiguredAppOrigin() || origin;
       return NextResponse.redirect(`${redirectOrigin}${next}`);
     }
     exchangeError = error.message;
@@ -51,7 +52,6 @@ export async function GET(request: NextRequest) {
       flowId ? { flowId } : undefined,
     );
     if (!error) {
-      const redirectOrigin = getConfiguredAppOrigin() || origin;
       return NextResponse.redirect(`${redirectOrigin}${next}`);
     }
     exchangeError = error.message;
@@ -61,6 +61,6 @@ export async function GET(request: NextRequest) {
   const errorMessage =
     authError || exchangeError || "Invalid or expired authentication link";
   return NextResponse.redirect(
-    `${origin}/login?error=${encodeURIComponent(errorMessage)}`,
+    `${redirectOrigin}/login?error=${encodeURIComponent(errorMessage)}`,
   );
 }

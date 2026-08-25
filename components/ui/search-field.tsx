@@ -7,6 +7,7 @@ type SearchFieldProps = {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   placeholder: string;
 };
 
@@ -15,6 +16,7 @@ export function SearchField({
   label,
   value,
   onChange,
+  onKeyDown,
   placeholder,
 }: SearchFieldProps) {
   return (
@@ -28,6 +30,7 @@ export function SearchField({
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         className="w-full rounded-lg border border-border bg-card py-2 pr-3 pl-9 text-sm text-foreground placeholder:text-muted-foreground"
       />

@@ -19,6 +19,24 @@ type Task = Tables<"tasks">;
 
 type NotificationResult = { error?: string; success?: boolean };
 
+export type NotificationFilters = {
+  page?: number;
+  pageSize?: number;
+  unreadOnly?: boolean;
+  type?: NotificationType;
+};
+
+export type PaginatedResult<T> = {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 50;
+
 const NOTIFICATION_TYPES: readonly NotificationType[] = [
   "TASK_ASSIGNED",
   "TASK_DUE_TODAY",
@@ -83,29 +101,35 @@ export async function createTaskDueNotification(
   });
 }
 
-export async function getNotifications(options?: {
-  unreadOnly?: boolean;
-  type?: NotificationType;
-  limit?: number;
-}): Promise<Notification[]> {
+export async function getNotifications(filters: NotificationFilters = {}): Promise<PaginatedResult<Notification>> {
   const context = await getCurrentUserContext();
-  if (!context.user || !context.organization) return [];
-  if (context.profile && !context.profile.in_app_notifications_enabled) return [];
+  if (!context.user || !context.organization) return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 0 };
+  if (context.profile && !context.profile.in_app_notifications_enabled) return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 0 };
 
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
   const supabase = await createClient();
   let query = supabase
     .from("notifications")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("organization_id", context.organization.id)
     .eq("user_id", context.user.id)
-    .order("created_at", { ascending: false })
-    .limit(options?.limit ?? 100);
-  if (options?.unreadOnly) query = query.eq("is_read", false);
-  if (options?.type) query = query.eq("type", options.type);
+    .order("created_at", { ascending: false });
 
-  const { data, error } = await query;
-  if (error) return [];
-  return data ?? [];
+  if (filters.unreadOnly) query = query.eq("is_read", false);
+  if (filters.type) query = query.eq("type", filters.type);
+
+  const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
+  if (error) return { data: [], total: 0, page, pageSize, totalPages: 0 };
+
+  const total = count ?? 0;
+  return {
+    data: data ?? [],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export async function getUnreadNotificationCount(): Promise<number> {

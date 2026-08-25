@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useActionState } from "react";
+import { useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Dialog } from "@/components/ui/dialog";
 import type { Tables } from "@/types/database.types";
 import { createCustomer, updateCustomer, deleteCustomer } from "@/lib/crm-actions";
+import type { CustomerFilters } from "@/lib/crm-actions";
 
 type Customer = Tables<"customers">;
 
@@ -219,26 +220,33 @@ function DeleteConfirm({ customer, onClose }: { customer: Customer; onClose: () 
   );
 }
 
-export function CustomersView({ customers }: { customers: Customer[] }) {
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("recent");
-  const [page, setPage] = useState(1);
+export function CustomersView({ customers, filters, total, page, pageSize, totalPages }: { customers: Customer[]; filters: CustomerFilters; total: number; page: number; pageSize: number; totalPages: number }) {
+  const router = useRouter();
+  const [search, setSearch] = useState(filters.search ?? "");
+  const [statusFilter] = useState(filters.status ?? "all");
+  const [sortBy] = useState(filters.sortBy ?? "recent");
   const [createOpen, setCreateOpen] = useState(false);
-  const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
-  const [deleteCustomerState, setDeleteCustomerState] = useState<Customer | null>(null);
+  const [editCustomer, setEditCustomer] = useState<Tables<"customers"> | null>(null);
+  const [deleteCustomerState, setDeleteCustomerState] = useState<Tables<"customers"> | null>(null);
+
+  function updateFilters(values: Record<string, string>) {
+    const params = new URLSearchParams();
+    const merged = { ...filters, ...values, page: String(values.page ?? filters.page ?? 1) };
+    Object.entries(merged).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
+    router.push(`/customers?${params.toString()}`);
+  }
 
   useEffect(() => {
     function handleEdit(event: Event) {
       setCreateOpen(false);
       setDeleteCustomerState(null);
-      setEditCustomer((event as CustomEvent<Customer>).detail);
+      setEditCustomer((event as CustomEvent<Tables<"customers">>).detail);
     }
 
     function handleDelete(event: Event) {
       setCreateOpen(false);
       setEditCustomer(null);
-      setDeleteCustomerState((event as CustomEvent<Customer>).detail);
+      setDeleteCustomerState((event as CustomEvent<Tables<"customers">>).detail);
     }
 
     window.addEventListener("edit-customer", handleEdit);
@@ -250,31 +258,6 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
     };
   }, []);
 
-  const filtered = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    const matching = customers.filter((customer) =>
-      (statusFilter === "all" || customer.status === statusFilter) &&
-      [customer.name, customer.company ?? "", customer.email ?? "", customer.status]
-        .join(" ")
-        .toLowerCase()
-        .includes(value),
-    );
-
-    return [...matching].sort((a, b) => {
-      if (sortBy === "name") return a.name.localeCompare(b.name);
-      if (sortBy === "status") return a.status.localeCompare(b.status);
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }, [customers, query, sortBy, statusFilter]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, sortBy, statusFilter]);
-
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const visibleCustomers = filtered.slice((page - 1) * pageSize, page * pageSize);
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -282,13 +265,14 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
           <SearchField
             id="customer-search"
             label="Search customers"
-            value={query}
-            onChange={setQuery}
+            value={search}
+            onChange={setSearch}
+            onKeyDown={(event) => { if (event.key === "Enter") updateFilters({ search: event.currentTarget.value }); }}
             placeholder="Search by name, company, or email"
           />
           <label className="space-y-1.5 text-sm font-medium">
             <span className="block">Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
+            <select value={statusFilter} onChange={(event) => updateFilters({ status: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
               <option value="all">All statuses</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
@@ -297,7 +281,7 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
           </label>
           <label className="space-y-1.5 text-sm font-medium">
             <span className="block">Sort</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
+            <select value={sortBy} onChange={(event) => updateFilters({ sortBy: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal">
               <option value="recent">Most recent</option>
               <option value="name">Name</option>
               <option value="status">Status</option>
@@ -309,28 +293,28 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
       <DataTable
         caption="Customers"
         columns={columns}
-        rows={visibleCustomers}
+        rows={customers}
         getRowId={(row) => row.id}
         emptyIcon={<InboxIcon />}
-        emptyTitle={customers.length === 0 ? "No customers yet" : "No matching customers"}
+        emptyTitle={total === 0 ? "No customers yet" : "No matching customers"}
         emptyDescription={
-          customers.length === 0
+          total === 0
             ? "When customers are added, they will appear in this table."
             : "Try a different search term to find a customer."
         }
         emptyAction={
-          customers.length === 0 ? (
+          total === 0 ? (
             <Button onClick={() => { setEditCustomer(null); setCreateOpen(true); }}>Add customer</Button>
           ) : undefined
         }
       />
 
-      {filtered.length > pageSize && (
+      {total > pageSize && (
         <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
-          <span>Page {page} of {pageCount}</span>
+          <span>Page {page} of {totalPages} ({total} total)</span>
           <div className="flex gap-2">
-            <Button variant="secondary" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</Button>
-            <Button variant="secondary" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)}>Next</Button>
+            <Button variant="secondary" disabled={page === 1} onClick={() => updateFilters({ page: String(page - 1) })}>Previous</Button>
+            <Button variant="secondary" disabled={page >= totalPages} onClick={() => updateFilters({ page: String(page + 1) })}>Next</Button>
           </div>
         </div>
       )}
